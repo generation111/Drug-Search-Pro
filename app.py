@@ -20,10 +20,10 @@ def init_gemini():
     # 嘗試從各種路徑抓取金鑰
     api_key = None
     
-    # 優先順序 1: Streamlit Secrets 標籤名 GEMINI_API_KEY
+    # 優先順序 1: Streamlit Secrets 標準標籤名
     if "GEMINI_API_KEY" in st.secrets:
         api_key = st.secrets["GEMINI_API_KEY"]
-    # 優先順序 2: 如果你誤把金鑰內容當成標籤 (修正你之前的錯誤)
+    # 優先順序 2: 容錯機制（防止誤把金鑰內容當成標籤）
     elif "AIzaSyBxhnhHvPL6zBX_vA3R6Fs7tc8tsYU8YQM" in st.secrets:
         api_key = "AIzaSyBxhnhHvPL6zBX_vA3R6Fs7tc8tsYU8YQM"
     # 優先順序 3: 環境變數
@@ -36,7 +36,7 @@ def init_gemini():
 
     try:
         genai.configure(api_key=api_key)
-        # 解決 404 問題：直接指定最穩定的名稱
+        # 使用最穩定的模型識別碼
         return genai.GenerativeModel('gemini-1.5-flash')
     except Exception as e:
         st.error(f"模型初始化失敗: {e}")
