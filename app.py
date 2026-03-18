@@ -26,7 +26,7 @@ try:
         st.error("❌ 找不到有效的 API Key，請檢查 Secrets 設定。")
         st.stop()
 
-    genai.configure(AIzaSyBxhnhHvPL6zBX_vA3R6Fs7tc8tsYU8YQM)
+    genai.configure(GEMINI_API_KEY)
 
     # 備選名單：從最穩定到最新版
     model_candidates = ['gemini-pro', 'gemini-1.5-pro', 'gemini-1.5-flash']
