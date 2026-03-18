@@ -2,65 +2,61 @@ import streamlit as st
 import google.generativeai as genai
 import os
 
-# --- 系統基礎配置 ---
-# 定義系統版本與單位名稱
+# --- 1. 系統基礎配置 ---
+# 移除 COMPANY_NAME 與 SYSTEM_NAME 變數
 CURRENT_APP_VERSION = "1.3.5"
-COMPANY_NAME = "慈榛驊有限公司"
-SYSTEM_NAME = "慈榛驊業務管理系統（全功能終極修復版）"
 
-# 設定頁面資訊
-st.set_page_config(page_title=SYSTEM_NAME, layout="wide")
+# 設定頁面資訊 (標題改為通用專業名稱)
+st.set_page_config(page_title="Rx Clinical Pro", layout="wide")
 
-# --- API 金鑰與模型配置 ---
-# 優先從 Streamlit Secrets 讀取，若無則尋找環境變數
+# --- 2. API 金鑰與模型配置 ---
+# 優先從 Streamlit Secrets 讀取，確保雲端部署正常
 if "GEMINI_API_KEY" in st.secrets:
     API_KEY = st.secrets["GEMINI_API_KEY"]
 else:
-    # 這裡放置您的備用金鑰，請確保格式正確 (僅代碼部分)
-    API_KEY = st.environ.get("GEMINI_API_KEY", "AIzaSyBNCEYq92cGpGYgoSgV9RrHHMwKYt4tHScY")
+    # 本地測試備用 (請確保此為單行字串，不含 curl 或多餘引號)
+    API_KEY = os.environ.get("GEMINI_API_KEY", "AIzaSyBNCEYq92cGpGYgoSgV9RrHHMwKYt4tHScY")
 
 genai.configure(api_key=API_KEY)
 
-# 初始化 Gemini 模型，使用穩定版名稱以避免 404 錯誤
+# 初始化 Gemini 1.5 Flash 穩定版
 try:
     model = genai.GenerativeModel('gemini-1.5-flash-latest')
 except Exception as e:
-    st.error(f"模型初始化失敗，請檢查 API Key 或網路連線。錯誤資訊: {e}")
+    st.error(f"模型初始化失敗，請檢查 API 配置。錯誤: {e}")
 
-# --- 介面佈局 ---
-# 標題區塊：盡量貼近頁面上緣
+# --- 3. 介面佈局 (保持簡潔專業) ---
+# 標題區塊：使用正確的參數 unsafe_allow_html
 st.markdown(f"<h1 style='text-align: center; margin-top: -50px;'>Rx Clinical Pro</h1>", unsafe_allow_html=True)
-st.write(f"<p style='text-align: center;'>專業藥事情報系統 | 版本代號 : {CURRENT_APP_VERSION}</p>", unsafe_allow_html=True)
+st.markdown(f"<p style='text-align: center;'>專業藥事情報系統 | 版本代號 : {CURRENT_APP_VERSION}</p>", unsafe_allow_html=True)
 
-# 產品快速選擇區塊 (置於上方)
-with st.container():
-    st.subheader("💊 產品快速選擇")
-    drug_query = st.text_input("請輸入藥品名稱 (學名或商品名)：", placeholder="例如: Holisoon, Pregabalin...", key="drug_input")
+# 搜尋區塊
+st.subheader("💊 藥品臨床數據檢索")
+drug_query = st.text_input("請輸入藥品名稱 (學名或商品名)：", placeholder="例如: Holisoon, Pregabalin...", key="drug_input")
 
-# --- 核心邏輯：AI 分析 ---
+# --- 4. 核心邏輯：AI 醫藥分析 ---
 if drug_query:
-    with st.spinner("正在檢索臨床數據，連線至醫學資料庫..."):
+    with st.spinner("正在連線至醫學資料庫進行分析..."):
         try:
-            # 建立商務推廣語氣的 Prompt
-            prompt = f"請以資深醫藥業務主管的角度，針對藥品 '{drug_query}' 提供專業的臨床推廣分析、解決方案及因應計畫。請包含健保規範、競爭對手分析及市場策略。"
+            # 建立符合資深醫藥主管觀點的指令
+            prompt = (
+                f"你現在是一位資深醫藥業務主管。請針對藥品 '{drug_query}' "
+                f"提供專業的推廣分析、健保規範說明、競爭對手差異化分析，"
+                f"並針對開發醫療院所提出具體的解決方案與應對計畫。"
+            )
             
             response = model.generate_content(prompt)
             
-            # 顯示結果區塊
+            # 顯示結果
             st.success("分析完成！")
-            st.markdown("### 📊 CEO 策略看板")
-            st.write(response.text)
-            
+            with st.expander("📊 查看 CEO 策略看板分析結果", expanded=True):
+                st.write(response.text)
+                
         except Exception as e:
-            # 捕獲並顯示結構化的錯誤訊息
+            # 捕獲並顯示結構化錯誤，便於排錯
             st.error(f"分析發生錯誤: {e}")
 
-# 戰報區塊 (置於底部)
+# --- 5. 頁尾資訊 ---
 st.divider()
-with st.container():
-    st.subheader("📋 戰報系統")
-    st.info("目前的戰報邏輯已根據先前指示進行鎖定，不隨意變動。")
-
-# --- 頁尾資訊 ---
-# 顯示版本號與單位名稱，確保變數已定義
-st.caption(f"系統版本: {CURRENT_APP_VERSION} | 單位: {COMPANY_NAME}")
+# 僅顯示版本號，移除公司名稱資訊
+st.caption(f"系統版本: {CURRENT_APP_VERSION}")
