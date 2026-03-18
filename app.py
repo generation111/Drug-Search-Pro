@@ -1,12 +1,20 @@
 import streamlit as st
 import google.generativeai as genai
-import time
-from datetime import datetime
 
-# --- 1. 系統版本與配置 (同步您的 HTML 設定) ---
-CURRENT_APP_VERSION = "1.3.5"
-SYSTEM_NAME = "慈榛驊業務管理系統（全功能終極修復版）"
-st.set_page_config(page_title=SYSTEM_NAME, layout="wide")
+# 1. 讀取金鑰 (確保您已在 Streamlit Secrets 設定 GEMINI_API_KEY)
+api_key = st.secrets.get("GEMINI_API_KEY", "您的備用金鑰")
+genai.configure(api_key=api_key)
+
+# 2. 修正模型名稱為最新穩定版
+try:
+    # 建議使用 gemini-1.5-flash-latest 或 gemini-pro
+    model = genai.GenerativeModel('gemini-1.5-flash-latest')
+except Exception as e:
+    st.error(f"模型啟動失敗: {e}")
+
+# 3. 執行生成時的語法
+# response = model.generate_content("分析藥品: Holisoon")
+
 
 # API 配置 (採用您的 Gemini Key)
 GEMINI_API_KEY = "AIzaSyBxhnhHvPL6zBX_vA3R6Fs7tc8tsYU8YQM"
