@@ -14,10 +14,25 @@ if 'history' not in st.session_state:
 if 'cache' not in st.session_state:
     st.session_state.cache = {}
 
-# --- 2. API 與模型配置 ---
-# 優先讀取 Secrets
-api_key = st.secrets.get("GEMINI_API_KEY", "AIzaSyBxhnhHvPL6zBX_vA3R6Fs7tc8tsYU8YQM")
-genai.configure(api_key=api_key)
+# --- 修正後的 API 配置區塊 ---
+try:
+    # 優先嘗試從 Streamlit Secrets 讀取
+    if "GEMINI_API_KEY" in st.secrets:
+        API_KEY = st.secrets["GEMINI_API_KEY"]
+    else:
+        # 如果 Secrets 沒設定，才去抓環境變數（本地測試用）
+        API_KEY = os.environ.get("GEMINI_API_KEY", "")
+
+    if not API_KEY or "curl" in API_KEY:
+        st.error("❌ 偵測到無效的金鑰格式，請檢查 Secrets 設定。")
+        st.stop()
+
+    genai.configure(api_key=API_KEY)
+    model = genai.GenerativeModel('gemini-1.5-flash-latest')
+    
+except Exception as e:
+    st.error(f"API 配置異常: {e}")
+    st.stop()
 
 # 使用穩定版模型
 model = genai.GenerativeModel('gemini-1.5-flash-latest')
