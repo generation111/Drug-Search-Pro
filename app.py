@@ -1,6 +1,13 @@
 import streamlit as st
 import google.generativeai as genai
 
+# 定義系統版本代號 (對應你目前的版本)
+CURRENT_APP_VERSION = "1.3.5" 
+
+# 如果你希望顯示完整的系統名稱，也可以定義這個
+SYSTEM_TITLE = "慈榛驊業務管理系統（全功能終極修復版）"
+
+
 # 1. 讀取金鑰 (確保您已在 Streamlit Secrets 設定 GEMINI_API_KEY)
 api_key = st.secrets.get("GEMINI_API_KEY", "您的備用金鑰")
 genai.configure(api_key=api_key)
