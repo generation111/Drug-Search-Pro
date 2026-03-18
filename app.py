@@ -20,7 +20,7 @@ try:
     if "GEMINI_API_KEY" in st.secrets:
         API_KEY = st.secrets["AIzaSyBxhnhHvPL6zBX_vA3R6Fs7tc8tsYU8YQM"]
     else:
-        API_KEY = os.environ.get("AIzaSyBxhnhHvPL6zBX_vA3R6Fs7tc8tsYU8YQM", "")
+        API_KEY = os.environ.get("AIzaSyBxhnhHvPL6zBX_vA3R6Fs7tc8tsYU8YQM")
 
     if not API_KEY or len(API_KEY) < 10:
         st.error("❌ 找不到有效的 API Key，請檢查 Secrets 設定。")
