@@ -15,7 +15,7 @@ if 'history' not in st.session_state:
 if 'cache' not in st.session_state:
     st.session_state.cache = {}
 
-# --- 2. API 配置區塊 (修正 404 問題) ---
+# --- 2. API 配置區塊 (自動偵測可用模型) ---
 try:
     if "GEMINI_API_KEY" in st.secrets:
         API_KEY = st.secrets["GEMINI_API_KEY"]
@@ -28,27 +28,29 @@ try:
 
     genai.configure(api_key=API_KEY)
 
-    # 解決 404 問題：嘗試多個可能的模型名稱
-    model_names = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro']
+    # 備選名單：從最穩定到最新版
+    model_candidates = ['gemini-pro', 'gemini-1.5-pro', 'gemini-1.5-flash']
     model = None
-    
-    for name in model_names:
+
+    for model_id in model_candidates:
         try:
-            model = genai.GenerativeModel('gemini-1.5-flash')
-            # 測試性呼叫，確保模型真的可用
-            model.prepare_methods() 
+            # 嘗試初始化模型
+            test_model = genai.GenerativeModel(model_id)
+            # 進行一次極小量的測試呼叫，確認 generateContent 權限
+            test_model.generate_content("ping", generation_config={"max_output_tokens": 1})
+            model = test_model
+            # st.success(f"成功連結模型: {model_id}") # 除錯用，正常運作後可註解掉
             break
-        except:
+        except Exception:
             continue
-            
+
     if model is None:
-        st.error("❌ 無法初始化任何 Gemini 模型，請稍後再試或檢查 API 權限。")
+        st.error("❌ 目前無法連線至任何 Gemini 模型 (gemini-pro/1.5)。請檢查 API Key 是否有對應權限，或稍後再試。")
         st.stop()
     
 except Exception as e:
-    st.error(f"API 配置異常: {e}")
+    st.error(f"系統初始化異常: {e}")
     st.stop()
-
 # --- 3. 自定義功能函數 ---
 def export_html(query, content, duration, is_cached):
     """生成 HTML 報告供下載"""
