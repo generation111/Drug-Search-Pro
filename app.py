@@ -18,15 +18,15 @@ if 'cache' not in st.session_state:
 # --- 2. API 配置區塊 (自動偵測可用模型) ---
 try:
     if "GEMINI_API_KEY" in st.secrets:
-        API_KEY = st.secrets["GEMINI_API_KEY"]
+        API_KEY = st.secrets["AIzaSyBxhnhHvPL6zBX_vA3R6Fs7tc8tsYU8YQM"]
     else:
-        API_KEY = os.environ.get("GEMINI_API_KEY", "")
+        API_KEY = os.environ.get("AIzaSyBxhnhHvPL6zBX_vA3R6Fs7tc8tsYU8YQM", "")
 
     if not API_KEY or len(API_KEY) < 10:
         st.error("❌ 找不到有效的 API Key，請檢查 Secrets 設定。")
         st.stop()
 
-    genai.configure(api_key=API_KEY)
+    genai.configure(AIzaSyBxhnhHvPL6zBX_vA3R6Fs7tc8tsYU8YQM)
 
     # 備選名單：從最穩定到最新版
     model_candidates = ['gemini-pro', 'gemini-1.5-pro', 'gemini-1.5-flash']
