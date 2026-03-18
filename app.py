@@ -8,9 +8,7 @@ APP_VERSION = "1.3.5"
 st.set_page_config(page_title="臨床藥事快搜 Pro", layout="wide")
 
 # API 配置 (建議之後改用 Secrets 管理)
-API_KEY = "AIzaSyBNCEYq92cGpGYgoSgV9RrHHMwKYt4tHScY" 
-genai.configure(api_key=API_KEY)
-
+genai.configure(api_key="AIzaSyBNCEYq92cGpGYgoSgV9RrHHMwKYt4tHScY")
 # --- 介面美化 ---
 st.markdown("""
     <style>
