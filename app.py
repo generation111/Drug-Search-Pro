@@ -16,7 +16,7 @@ if 'cache' not in st.session_state:
 
 # --- 2. API 與模型配置 ---
 # 優先讀取 Secrets
-api_key = st.secrets.get("GEMINI_API_KEY", "AIzaSyBNCEYq92cGpGYgoSgV9RrHHMwKYt4tHScY")
+api_key = st.secrets.get("GEMINI_API_KEY", "AIzaSyBxhnhHvPL6zBX_vA3R6Fs7tc8tsYU8YQM")
 genai.configure(api_key=api_key)
 
 # 使用穩定版模型
