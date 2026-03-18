@@ -72,7 +72,7 @@ st.markdown(f"""
         <div class="main-title">Clinical <span class="highlight">Pro</span></div>
     </div>
 """, unsafe_allow_html=True)
-st.caption(f"系統版本: {臨床藥事快搜 Pro - 公開部署版} | 單位: 慈榛驊有限公司")
+st.caption(f"系統版本: {} | 單位: 慈榛驊有限公司")
 
 # 搜尋輸入 (替代 HTML 的 Form)
 query = st.text_input("", placeholder="輸入藥品關鍵字 (如: Holisoon, Pregabalin)...", key="search_input")
