@@ -9,7 +9,21 @@ SYSTEM_NAME = "慈榛驊業務管理系統（全功能終極修復版）"
 st.set_page_config(page_title=SYSTEM_NAME, layout="wide")
 
 # API 配置 (採用您的 Gemini Key)
-GEMINI_API_KEY = "AIzaSyBNCEYq92cGpGYgoSgV9RrHHMwKYt4tHScY"
+GEMINI_API_KEY = "curl "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent" \
+  -H 'Content-Type: application/json' \
+  -H 'X-goog-api-key: AIzaSyDzOnR4L0YYTnnGOaON8X8OKH7FnDhHt4Y' \
+  -X POST \
+  -d '{
+    "contents": [
+      {
+        "parts": [
+          {
+            "text": "Explain how AI works in a few words"
+          }
+        ]
+      }
+    ]
+  }'"
 genai.configure(api_key=GEMINI_API_KEY)
 
 # --- 2. 注入您的 HTML/Tailwind 視覺精髓 ---
