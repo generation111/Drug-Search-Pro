@@ -15,23 +15,35 @@ if 'history' not in st.session_state:
 if 'cache' not in st.session_state:
     st.session_state.cache = {}
 
-# --- 2. API 配置區塊 (整合優化) ---
+# --- 2. API 配置區塊 (修正 404 問題) ---
 try:
-    # 優先嘗試從 Streamlit Secrets 讀取
     if "GEMINI_API_KEY" in st.secrets:
         API_KEY = st.secrets["GEMINI_API_KEY"]
     else:
-        # 如果 Secrets 沒設定，抓取環境變數
         API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
-    # 安全檢查：防止金鑰格式錯誤
-    if not API_KEY or "curl" in API_KEY or len(API_KEY) < 10:
-        st.error("❌ 偵測到無效的金鑰格式，請檢查 Streamlit Secrets 設定。")
+    if not API_KEY or len(API_KEY) < 10:
+        st.error("❌ 找不到有效的 API Key，請檢查 Secrets 設定。")
         st.stop()
 
     genai.configure(api_key=API_KEY)
-    # 統一初始化一個 model 執行個體即可
-    model = genai.GenerativeModel('gemini-1.5-flash-latest')
+
+    # 解決 404 問題：嘗試多個可能的模型名稱
+    model_names = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro']
+    model = None
+    
+    for name in model_names:
+        try:
+            model = genai.GenerativeModel('gemini-1.5-flash')
+            # 測試性呼叫，確保模型真的可用
+            model.prepare_methods() 
+            break
+        except:
+            continue
+            
+    if model is None:
+        st.error("❌ 無法初始化任何 Gemini 模型，請稍後再試或檢查 API 權限。")
+        st.stop()
     
 except Exception as e:
     st.error(f"API 配置異常: {e}")
