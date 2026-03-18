@@ -29,7 +29,7 @@ except Exception as e:
 
 # --- 介面佈局 ---
 # 標題區塊：盡量貼近頁面上緣
-st.markdown(f"<h1 style='text-align: center; margin-top: -50px;'>Rx Clinical Pro</h1>", unsafe_allow_name=True)
+st.markdown(f"<h1 style='text-align: center; margin-top: -50px;'>Rx Clinical Pro</h1>", unsafe_allow_html=True)
 st.write(f"<p style='text-align: center;'>專業藥事情報系統 | 版本代號 : {CURRENT_APP_VERSION}</p>", unsafe_allow_html=True)
 
 # 產品快速選擇區塊 (置於上方)
