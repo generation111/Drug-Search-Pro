@@ -2,6 +2,7 @@ import streamlit as st
 import google.generativeai as genai
 import time
 import base64
+import os  # <-- 必須補上這行，否則抓不到環境變數
 from datetime import datetime
 
 # --- 1. 系統配置 ---
@@ -14,28 +15,27 @@ if 'history' not in st.session_state:
 if 'cache' not in st.session_state:
     st.session_state.cache = {}
 
-# --- 修正後的 API 配置區塊 ---
+# --- 2. API 配置區塊 (整合優化) ---
 try:
     # 優先嘗試從 Streamlit Secrets 讀取
     if "GEMINI_API_KEY" in st.secrets:
         API_KEY = st.secrets["GEMINI_API_KEY"]
     else:
-        # 如果 Secrets 沒設定，才去抓環境變數（本地測試用）
+        # 如果 Secrets 沒設定，抓取環境變數
         API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
-    if not API_KEY or "curl" in API_KEY:
-        st.error("❌ 偵測到無效的金鑰格式，請檢查 Secrets 設定。")
+    # 安全檢查：防止金鑰格式錯誤
+    if not API_KEY or "curl" in API_KEY or len(API_KEY) < 10:
+        st.error("❌ 偵測到無效的金鑰格式，請檢查 Streamlit Secrets 設定。")
         st.stop()
 
     genai.configure(api_key=API_KEY)
+    # 統一初始化一個 model 執行個體即可
     model = genai.GenerativeModel('gemini-1.5-flash-latest')
     
 except Exception as e:
     st.error(f"API 配置異常: {e}")
     st.stop()
-
-# 使用穩定版模型
-model = genai.GenerativeModel('gemini-1.5-flash-latest')
 
 # --- 3. 自定義功能函數 ---
 def export_html(query, content, duration, is_cached):
@@ -86,9 +86,11 @@ if query:
     else:
         with st.spinner("🔄 正在同步雲端醫學數據..."):
             try:
+                # 採用藥師視角的專業指令
                 prompt = f"你是資深臨床藥師。請極速分析藥品 '{query}' 的適應症、用法、禁忌。分段清晰，不要使用粗體語法。"
                 response = model.generate_content(prompt)
                 result_text = response.text
+                
                 # 寫入快取與歷史
                 st.session_state.cache[query] = result_text
                 if query not in st.session_state.history:
@@ -99,7 +101,6 @@ if query:
 
     # 顯示結果
     if result_text:
-        # 狀態列 (效能顯示)
         col1, col2 = st.columns([1, 1])
         with col1:
             status_color = "#22c55e" if is_cached else "#4F46E5"
@@ -107,10 +108,9 @@ if query:
             st.markdown(f"<span style='color:{status_color}; font-size:12px; font-weight:bold; background:#f0fdf4; padding:4px 8px; border-radius:6px;'>● {status_text}</span>", unsafe_allow_html=True)
         
         with col2:
-            # 導出按鈕
-            st.markdown(export_html(query, result_text, duration if not is_cached else 0, is_cached), unsafe_allow_html=True)
+            st.markdown(export_html(query, result_text, duration, is_cached), unsafe_allow_html=True)
 
-        # 報告本文
+        # 報告展示區
         st.markdown(f"""
         <div style="background-color: #1e293b; padding: 30px; border-radius: 20px 20px 0 0; margin-top: 20px;">
             <h2 style="color: white; margin: 0;">{query}</h2>
