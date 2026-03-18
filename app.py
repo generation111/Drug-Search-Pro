@@ -15,42 +15,30 @@ if 'history' not in st.session_state:
 if 'cache' not in st.session_state:
     st.session_state.cache = {}
 
-# --- 2. API 配置區塊 (自動偵測可用模型) ---
+import os
+
+# --- 2. API 配置區塊 (正確讀取方式) ---
 try:
+    # 我們要拿的是標籤名稱 "GEMINI_API_KEY"
     if "GEMINI_API_KEY" in st.secrets:
-        API_KEY = st.secrets["AIzaSyBxhnhHvPL6zBX_vA3R6Fs7tc8tsYU8YQM"]
+        API_KEY = st.secrets["GEMINI_API_KEY"]
     else:
-        API_KEY = os.environ.get("AIzaSyBxhnhHvPL6zBX_vA3R6Fs7tc8tsYU8YQM")
+        # 本地測試時抓取環境變數
+        API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
-    if not API_KEY or len(API_KEY) < 10:
-        st.error("❌ 找不到有效的 API Key，請檢查 Secrets 設定。")
+    if not API_KEY:
+        st.error("❌ Secrets 中找不到 GEMINI_API_KEY 標籤，請檢查設定。")
         st.stop()
 
-    genai.configure(GEMINI_API_KEY)
-
-    # 備選名單：從最穩定到最新版
-    model_candidates = ['gemini-pro', 'gemini-1.5-pro', 'gemini-1.5-flash']
-    model = None
-
-    for model_id in model_candidates:
-        try:
-            # 嘗試初始化模型
-            test_model = genai.GenerativeModel(model_id)
-            # 進行一次極小量的測試呼叫，確認 generateContent 權限
-            test_model.generate_content("ping", generation_config={"max_output_tokens": 1})
-            model = test_model
-            # st.success(f"成功連結模型: {model_id}") # 除錯用，正常運作後可註解掉
-            break
-        except Exception:
-            continue
-
-    if model is None:
-        st.error("❌ 目前無法連線至任何 Gemini 模型 (gemini-pro/1.5)。請檢查 API Key 是否有對應權限，或稍後再試。")
-        st.stop()
+    # 初始化 Gemini
+    genai.configure(api_key=API_KEY)
+    # 使用最穩定的模型名稱
+    model = genai.GenerativeModel('gemini-1.5-flash')
     
 except Exception as e:
     st.error(f"系統初始化異常: {e}")
     st.stop()
+
 # --- 3. 自定義功能函數 ---
 def export_html(query, content, duration, is_cached):
     """生成 HTML 報告供下載"""
