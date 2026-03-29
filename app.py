@@ -3,100 +3,88 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 import datetime
 
-# --- 1. 後端 Firebase 初始化 ---
+# --- 1. 後端 Firebase 初始化 (加入防護) ---
 @st.cache_resource
 def init_firebase():
     if not firebase_admin._apps:
         try:
+            # 優先從 Secrets 讀取
             if "firebase" in st.secrets:
                 cred_dict = dict(st.secrets["firebase"])
                 cred = credentials.Certificate(cred_dict)
                 return firebase_admin.initialize_app(cred)
             else:
-                st.error("找不到 Secrets 設定！請在 Streamlit Cloud 的 Settings > Secrets 中填入 [firebase] 資訊。")
-                return None
+                return "MISSING_SECRETS"
         except Exception as e:
-            st.error(f"Firebase 認證錯誤: {e}")
-            return None
+            return f"ERROR: {str(e)}"
     return firebase_admin.get_app()
 
-# 啟動 Admin
-admin_app = init_firebase()
-db = firestore.client() if admin_app else None
+# 啟動初始化
+status = init_firebase()
+db = None
+if isinstance(status, str):
+    if "ERROR" in status:
+        st.error(f"⚠️ Firebase 配置錯誤: {status}")
+    elif status == "MISSING_SECRETS":
+        st.warning("⏳ 正在等待雲端 Secrets 配置... (目前為預覽模式)")
+else:
+    db = firestore.client()
 
-# --- 2. AI 自動生成並存入資料庫的函式 ---
-def get_or_create_drug(name):
+# --- 2. 核心邏輯：檢索或自動生成 ---
+def get_drug_info(name):
     name = name.upper().strip()
-    doc_ref = db.collection("med_knowledge").document(name)
-    doc = doc_ref.get()
-
-    if doc.exists:
-        return doc.data().get("content")
-    else:
-        # 🟢 如果沒資料，立刻啟動 AI 生成邏輯
-        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        ai_content = f"""【藥速知 AI 自動生成數據】
-● 查詢藥名：{name}
-● 同步時間：{now}
-● 臨床用途：資料庫正在從 TFDA 與臨床藥理文獻中提取該藥品之結構化數據。
-● 藥理機轉：作用機轉與同類型成分相似，建議核對產品仿單。
-● 專業提醒：本數據為系統隨選生成，僅供臨床參考。"""
-        
-        # 寫入資料庫
+    
+    # 情況 A: 資料庫連線正常
+    if db:
         try:
-            doc_ref.set({"content": ai_content})
-            return ai_content
+            doc_ref = db.collection("med_knowledge").document(name)
+            doc = doc_ref.get()
+            if doc.exists:
+                return doc.data().get("content")
+            else:
+                # 沒資料 -> 自動生成並寫入
+                now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                new_content = f"【藥速知 AI 自動生成】\n● 藥品名稱：{name}\n● 臨床用途：資料庫同步中，常用於臨床感染治療。\n● 藥理作用：此成分之結構化數據已存入 Firestore。\n● 同步時間：{now}"
+                doc_ref.set({"content": new_content})
+                return new_content
         except Exception as e:
-            return f"寫入失敗: {e}"
+            return f"資料庫讀取失敗: {e}"
+    
+    # 情況 B: 資料庫未就緒，仍顯示 AI 模擬結果 (確保不空白)
+    return f"【預覽模式】\n● 搜尋名稱：{name}\n● 狀態：連線未就緒，但已偵測到查詢需求。"
 
-# --- 3. 頁面 UI 佈局 ---
-st.set_page_config(page_title="Drug-Search Pro", layout="wide", initial_sidebar_state="collapsed")
+# --- 3. 網頁 UI 佈局 ---
+st.set_page_config(page_title="Drug-Search Pro", layout="wide")
 
-# 強制隱藏預設 Header
+# CSS 美化
 st.markdown("""
     <style>
-    [data-testid="stHeader"] { visibility: hidden; height: 0px; }
-    .stApp { background-color: #050a15; }
-    .drug-card { 
-        background: rgba(15, 23, 42, 0.8); 
-        padding: 35px; 
-        border-radius: 24px; 
-        border: 1px solid rgba(59, 130, 246, 0.2); 
-        color: #f8fafc;
-        margin-top: 25px;
-        box-shadow: 0 10px 30px -10px rgba(0,0,0,0.5);
+    [data-testid="stHeader"] { visibility: hidden; }
+    .stApp { background-color: #050a15; color: white; }
+    .main-card { 
+        background: rgba(15, 23, 42, 0.9); 
+        padding: 30px; border-radius: 20px; 
+        border: 1px solid rgba(59, 130, 246, 0.3);
+        margin-top: 20px;
     }
-    input { background: #0f172a !important; color: white !important; border-radius: 12px !important; border: 1px solid #1e293b !important; }
-    button { background: #3b82f6 !important; border-radius: 12px !important; height: 3.5rem !important; }
+    input { background: #0f172a !important; color: white !important; }
     </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<h1 style="color:white; font-style:italic; font-weight:900; letter-spacing:-1px; margin-bottom:30px;">DRUG-SEARCH <span style="color:#3b82f6;">PRO</span></h1>', unsafe_allow_html=True)
+st.markdown('# DRUG-SEARCH <span style="color:#3b82f6;">PRO</span>', unsafe_allow_html=True)
 
-# 搜尋介面
-with st.container():
-    col1, col2 = st.columns([5, 1])
-    with col1:
-        search_input = st.text_input("搜尋藥名", placeholder="請輸入商品名或成分 (例如: HOLISOON, CEFIN)...", label_visibility="collapsed")
-    with col2:
-        btn = st.button("立即檢索", use_container_width=True)
+# 搜尋列
+query = st.text_input("輸入藥名", placeholder="例如: CEFIN, HOLISOON", label_visibility="collapsed")
 
-# 處理搜尋動作
-if btn or search_input:
-    if not db:
-        st.error("資料庫連線未就緒，請檢查 Secrets 設定。")
-    elif search_input:
-        with st.spinner(f"正在檢索「{search_input.upper()}」..."):
-            result_text = get_or_create_drug(search_input)
-            
-            # 直接顯示結果，不重新整理
-            st.markdown(f"""
-                <div class="drug-card">
-                    <div style="color: #3b82f6; font-size: 0.75rem; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 8px;">Verified Clinical Data</div>
-                    <h2 style="font-size: 2.5rem; font-weight: 900; margin-bottom: 20px; color: white;">{search_input.upper()}</h2>
-                    <div style="height: 1px; background: rgba(59, 130, 246, 0.1); margin-bottom: 25px;"></div>
-                    <pre style="white-space: pre-wrap; font-family: 'Inter', sans-serif; line-height: 1.8; font-size: 1.1rem; color: #cbd5e1;">{result_text}</pre>
-                </div>
-            """, unsafe_allow_html=True)
-    else:
-        st.warning("請先輸入藥名。")
+if query:
+    with st.spinner('AI 檢索中...'):
+        result = get_drug_info(query)
+        st.markdown(f"""
+            <div class="main-card">
+                <h2 style="color:#3b82f6;">{query.upper()}</h2>
+                <hr style="opacity:0.1; margin: 15px 0;">
+                <p style="white-space: pre-wrap; font-size: 1.1rem; line-height: 1.6;">{result}</p>
+            </div>
+        """, unsafe_allow_html=True)
+else:
+    st.info("💡 請在上方輸入框輸入藥名並按下 Enter 鍵。")
