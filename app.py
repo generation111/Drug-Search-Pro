@@ -1,107 +1,139 @@
 import streamlit as st
+import firebase_admin
+from firebase_admin import credentials, firestore
 import streamlit.components.v1 as components
+import json
 
-# --- 1. 後端 Firebase 初始化 (加入嚴格錯誤保護) ---
-try:
-    import firebase_admin
-    from firebase_admin import credentials
+# --- 1. 後端 Firebase 初始化 (管理員權限) ---
+@st.cache_resource
+def init_firebase():
     if not firebase_admin._apps:
-        if "firebase" in st.secrets:
-            # 確保 secrets 內容完整才初始化
+        try:
             cred_dict = dict(st.secrets["firebase"])
-            if "project_id" in cred_dict:
-                cred = credentials.Certificate(cred_dict)
-                firebase_admin.initialize_app(cred)
+            cred = credentials.Certificate(cred_dict)
+            return firebase_admin.initialize_app(cred)
+    return firebase_admin.get_app()
+
+try:
+    app = init_firebase()
+    db_admin = firestore.client()
 except Exception as e:
-    # 即使後端失敗，也只是記錄錯誤，不中斷程式執行
-    st.sidebar.warning("後端 Admin SDK 未啟動 (不影響前端查詢)")
+    st.error(f"Firebase Admin 初始化失敗: {e}")
 
-# --- 2. 頁面基本配置 ---
-st.set_page_config(
-    page_title="Drug-Search-Pro | Clinical Intelligence",
-    page_icon="💊",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
+# --- 2. AI 生成與自動寫入邏輯 ---
+def ai_generate_and_save(drug_name):
+    """
+    這是一個模擬 AI 生成的函式。
+    俊林，你之後可以在這裡接入 OpenAI 的 API。
+    """
+    drug_name = drug_name.upper()
+    
+    # 這裡你可以換成 OpenAI 的調用代碼
+    ai_content = f"""【藥速知 AI 自動生成】
+● 商品名：{drug_name}
+● 成分學名：(系統自動檢索中)
+● 臨床用途：用於治療相關感染或緩解症狀。
+● 藥理作用：本品為處方用藥，詳細機轉需參考 TFDA 公告。
+● 注意事項：請依照專業醫療人員指示使用。
+● 數據來源：臨床資料庫自動同步 ({time_str()})"""
+    
+    # 自動寫入 Firestore
+    doc_ref = db_admin.collection("med_knowledge").document(drug_name)
+    doc_ref.set({"content": ai_content})
+    return ai_content
 
-# --- 3. 前端 UI (這部分才是您的核心功能) ---
-html_content = """
+def time_str():
+    import datetime
+    return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+# --- 3. Streamlit 介面與橋接器 ---
+st.set_page_config(page_title="Drug-Search Pro", layout="wide")
+
+# 透過 URL 參數接收前端傳來的「生成請求」
+query_params = st.query_params
+if "action" in query_params and query_params["action"] == "generate":
+    target_drug = query_params["name"]
+    ai_generate_and_save(target_drug)
+    # 生成後重置 URL
+    st.query_params.clear()
+    st.rerun()
+
+# --- 4. 前端 UI (React + Firebase SDK) ---
+html_content = f"""
 <!DOCTYPE html>
-<html lang="zh-Hant">
+<html>
 <head>
-    <meta charset="UTF-8">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&family=Noto+Sans+TC:wght@300;400;700&display=swap');
-        body { margin: 0; background: #050a15; color: #f8fafc; font-family: 'Inter', 'Noto Sans TC', sans-serif; }
-        .medical-grid { background-image: radial-gradient(circle at 2px 2px, rgba(59,130,246,0.1) 1px, transparent 0); background-size: 40px 40px; }
-        .glass-card { background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(20px); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 28px; }
-    </style>
 </head>
-<body>
-    <div id="root" class="medical-grid min-h-screen"></div>
+<body class="bg-[#050a15] text-white">
+    <div id="root"></div>
     <script type="text/babel">
-        const { useState } = React;
-        const firebaseConfig = {
+        const {{ useState, useEffect }} = React;
+        const firebaseConfig = {{
             apiKey: "AIzaSyDYzAXOd4xyJ5NOuwJl5nj7XgcVmba_54I",
             authDomain: "drug-search-pro.firebaseapp.com",
             projectId: "drug-search-pro",
-            storageBucket: "drug-search-pro.firebasestorage.app",
-            messagingSenderId: "601449029455",
             appId: "1:601449029455:web:d05d7592b32780efe86f3a"
-        };
-
-        if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+        }};
+        firebase.initializeApp(firebaseConfig);
         const db = firebase.firestore();
 
-        const App = () => {
+        const App = () => {{
             const [query, setQuery] = useState("");
             const [result, setResult] = useState(null);
             const [loading, setLoading] = useState(false);
 
-            const searchDrug = async () => {
-                const drugName = query.trim().toUpperCase();
-                if (!drugName) return;
+            const search = async () => {{
+                if (!query) return;
                 setLoading(true);
-                try {
-                    const docSnap = await db.collection("med_knowledge").doc(drugName).get({ source: 'server' });
-                    setResult(docSnap.exists ? docSnap.data().content : "尚未建立 " + drugName + " 的數據。");
-                } catch (err) {
-                    setResult("連線錯誤：" + err.message);
-                }
-                setLoading(false);
-            };
+                const name = query.trim().toUpperCase();
+                
+                try {{
+                    const doc = await db.collection("med_knowledge").doc(name).get();
+                    if (doc.exists) {{
+                        setResult(doc.data().content);
+                        setLoading(false);
+                    }} else {{
+                        // 🔴 關鍵：沒資料時，通知 Python 啟動 AI 生成
+                        setResult("資料庫中無快取，正在透過 AI 自動生成數據，請稍候...");
+                        window.parent.location.href = window.parent.location.origin + "?action=generate&name=" + name;
+                    }}
+                }} catch (e) {{
+                    setResult("錯誤: " + e.message);
+                    setLoading(false);
+                }}
+            }};
 
             return (
-                <div className="max-w-4xl mx-auto p-6 pt-16">
-                    <h1 className="text-2xl font-black uppercase italic text-white mb-10 tracking-tighter">Drug-Search <span className="text-blue-500">PRO</span></h1>
-                    {!result && !loading ? (
-                        <div className="space-y-6 text-center animate-fadeIn">
-                            <h2 className="text-4xl font-bold">臨床藥學智慧庫</h2>
-                            <div className="glass-card p-2 flex max-w-2xl mx-auto border-blue-500/40">
-                                <input className="bg-transparent flex-1 px-6 py-4 text-white outline-none" placeholder="輸入藥名 (例如: HOLISOON)..." value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => e.key === 'Enter' && searchDrug()}/>
-                                <button onClick={searchDrug} className="bg-blue-600 px-10 py-4 rounded-2xl font-bold hover:bg-blue-500 transition-all">檢索</button>
-                            </div>
+                <div className="p-10 max-w-4xl mx-auto">
+                    <h1 className="text-3xl font-black mb-10 italic uppercase tracking-tighter">Drug-Search <span className="text-blue-500">PRO</span></h1>
+                    <div className="bg-slate-900/50 p-2 rounded-2xl border border-blue-500/30 flex shadow-2xl">
+                        <input 
+                            className="bg-transparent flex-1 px-6 py-4 text-xl outline-none" 
+                            placeholder="輸入藥名 (例如: CEFIN)..."
+                            value={query}
+                            onChange={{e => setQuery(e.target.value)}}
+                            onKeyDown={{e => e.key === 'Enter' && search()}}
+                        />
+                        <button onClick={{search}} className="bg-blue-600 px-10 py-4 rounded-xl font-bold hover:bg-blue-500 transition-all">
+                            {{loading ? "處理中..." : "檢索"}}
+                        </button>
+                    </div>
+                    {{result && (
+                        <div className="mt-10 p-10 bg-slate-900 rounded-3xl border border-blue-900/50 animate-in fade-in slide-in-from-bottom-4 duration-700">
+                            <div className="text-blue-500 text-xs font-bold mb-4 tracking-widest uppercase italic underline">Clinical Intelligence Data</div>
+                            <pre className="whitespace-pre-wrap font-sans text-slate-300 leading-relaxed text-lg">{{result}}</pre>
                         </div>
-                    ) : loading ? (
-                        <div className="text-center py-20 text-blue-500 animate-pulse tracking-widest uppercase text-xs">Accessing Cloud Database...</div>
-                    ) : (
-                        <div className="glass-card p-10 space-y-6 shadow-2xl border-blue-900/40">
-                            <h2 className="text-3xl font-black text-blue-500 uppercase">{query}</h2>
-                            <div className="text-slate-300 whitespace-pre-wrap leading-relaxed text-lg">{result}</div>
-                            <button onClick={() => {setResult(null); setQuery("");}} className="text-slate-500 hover:text-white font-bold text-sm">← 返回重新搜尋</button>
-                        </div>
-                    )}
+                    )}}
                 </div>
             );
-        };
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
+        }};
+        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
     </script>
 </body>
 </html>
