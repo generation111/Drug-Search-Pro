@@ -8,44 +8,51 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# 2. 將您的 React 程式碼封裝進 HTML 字串
-# 注意：我已經幫您處理了 JavaScript 中的反引號與標點符號，使其在 Python 字串中安全運行
+# 2. 定義完整 HTML/JS/Firebase 邏輯
 html_content = """
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700;900&display=swap');
-        body { margin: 0; padding: 0; overflow-x: hidden; }
+        body { margin: 0; background: #08101f; color: #e2e8f0; font-family: 'Noto Sans TC', sans-serif; }
         @keyframes cfadeup { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
-        @keyframes cpulse  { 0%,100%{opacity:1} 50%{opacity:0.4} }
-        @keyframes cspin   { to{transform:rotate(360deg)} }
-        @keyframes cspinr  { from{transform:translate(-50%,-50%) rotate(0)} to{transform:translate(-50%,-50%) rotate(-360deg)} }
-        * { box-sizing:border-box; }
-        ::-webkit-scrollbar { width:5px; }
-        ::-webkit-scrollbar-track { background:#08101f; }
-        ::-webkit-scrollbar-thumb { background:#1e293b; border-radius:99px; }
+        @keyframes cspin { to{transform:rotate(360deg)} }
+        .grid-bg { background-image: linear-gradient(rgba(79,156,249,0.04) 1px,transparent 1px),linear-gradient(90deg,rgba(79,156,249,0.04) 1px,transparent 1px); background-size: 40px 40px; }
     </style>
 </head>
 <body>
-    <div id="root"></div>
+    <div id="root" class="grid-bg min-h-screen"></div>
 
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
+        // --- ⚠️ 配置區 ---
+        const firebaseConfig = {
+            apiKey: "您的_FIREBASE_API_KEY",
+            authDomain: "您的專案.firebaseapp.com",
+            projectId: "您的專案-ID",
+            storageBucket: "您的專案.appspot.com",
+            messagingSenderId: "您的ID",
+            appId: "您的APP_ID"
+        };
+        const GEMINI_API_KEY = "您的_GEMINI_API_KEY";
+
+        // 初始化 Firebase
+        if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
         const QUICK_TAGS = ["Metformin", "Amoxicillin", "Warfarin", "Atorvastatin", "Omeprazole", "Lisinopril", "Aspirin", "Amlodipine"];
-        const LOADING_STEPS = ["查詢台灣食藥署 TFDA 資料庫...", "比對健保署 NHI 給付規範...", "搜尋臨床藥理資訊...", "整合分析報告中..."];
         const SECTIONS = ["藥品基本資料", "臨床適應症與用法", "健保給付規定", "藥師臨床提示"];
         const SECTION_ICONS = { "藥品基本資料": "💊", "臨床適應症與用法": "📋", "健保給付規定": "🏥", "藥師臨床提示": "⚠️" };
-
-        // ⚠️ 請填入您的 ANTHROPIC 或 GEMINI API KEY
-        const API_KEY = "您的_API_KEY_在此";
 
         const SYS = `你是一位資深臨床藥師，專精台灣健保與臨床藥學。請針對查詢的藥品進行專業分析，並嚴格使用以下四個標題結構：
 【藥品基本資料】
@@ -67,7 +74,7 @@ html_content = """
                 const idx = rem.indexOf(marker);
                 if (idx === -1) continue;
                 rem = rem.slice(idx + marker.length);
-                const nexts = SECTIONS.map((s) => rem.indexOf(`【${s}】`)).filter((i) => i > 0).sort((a, b) => a - b);
+                const nexts = SECTIONS.map(s => rem.indexOf(`【${s}】`)).filter(i => i > 0).sort((a,b) => a-b);
                 const end = nexts[0];
                 blocks.push({ title: sec, content: end !== undefined ? rem.slice(0, end).trim() : rem.trim() });
                 if (end !== undefined) rem = rem.slice(end);
@@ -78,108 +85,113 @@ html_content = """
         const App = () => {
             const [query, setQuery] = useState("");
             const [loading, setLoading] = useState(false);
-            const [timer, setTimer] = useState(0);
-            const [isCached, setIsCached] = useState(false);
             const [result, setResult] = useState(null);
-            const [activeStep, setActiveStep] = useState(0);
+            const [source, setSource] = useState("");
+            const [timer, setTimer] = useState(0);
             const timerRef = useRef(null);
-            const cache = useRef({});
 
             useEffect(() => {
-                if (loading) {
-                    timerRef.current = setInterval(() => setTimer((p) => +(p + 0.1).toFixed(1)), 100);
-                } else {
-                    clearInterval(timerRef.current);
-                }
-                return () => clearInterval(timerRef.current);
-            }, [loading]);
+                firebase.auth().signInAnonymously().catch(console.error);
+            }, []);
 
             const search = async (q = query) => {
-                const t = q.trim();
+                const t = q.trim().toUpperCase();
                 if (!t) return;
-                if (cache.current[t]) {
-                    setIsCached(true); setResult(cache.current[t]); setLoading(false); return;
-                }
-                setIsCached(false); setLoading(true); setResult(null);
-                
+                setLoading(true); setResult(null); setTimer(0);
+                timerRef.current = setInterval(() => setTimer(p => +(p+0.1).toFixed(1)), 100);
+
                 try {
-                    // 這裡預設使用您程式碼中的 Anthropic 結構，如果是用 Gemini 請自行替換 URL
-                    const res = await fetch("https://api.anthropic.com/v1/messages", {
-                        method: "POST",
-                        headers: {
-                            "content-type": "application/json",
-                            "x-api-key": API_KEY,
-                            "anthropic-version": "2023-06-01",
-                            "anthropic-dangerous-direct-browser-access": "true",
-                        },
-                        body: JSON.stringify({
-                            model: "claude-3-5-sonnet-20240620",
-                            max_tokens: 1500,
-                            system: SYS,
-                            messages: [{ role: "user", content: `請分析：${t}` }],
-                        }),
-                    });
-                    const json = await res.json();
-                    const text = json.content[0].text;
-                    cache.current[t] = text;
-                    setResult(text);
-                } catch (e) { alert("查詢出錯，請檢查 API Key"); }
+                    // 1. 檢查 Firestore 快取
+                    const docRef = db.collection("med_knowledge").doc(t);
+                    const docSnap = await docRef.get();
+
+                    if (docSnap.exists) {
+                        setResult(docSnap.data().content);
+                        setSource("Cloud Cache");
+                    } else {
+                        // 2. 調用 Gemini API (Google Search 模式)
+                        setSource("Gemini AI Search");
+                        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                                contents: [{ parts: [{ text: `請分析：${t}` }] }],
+                                systemInstruction: { parts: [{ text: SYS }] },
+                                tools: [{ "google_search": {} }]
+                            })
+                        });
+                        const data = await res.json();
+                        const text = data.candidates[0].content.parts[0].text;
+                        
+                        // 3. 儲存至 Firestore
+                        await docRef.set({
+                            content: text,
+                            timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                        setResult(text);
+                    }
+                } catch (e) {
+                    alert("錯誤：" + (e.message || "請檢查 API Key 或網路連線"));
+                }
+                clearInterval(timerRef.current);
                 setLoading(false);
             };
 
             const blocks = result ? parseResult(result) : [];
 
             return (
-                <div style={{ minHeight: "100vh", background: "#08101f", color: "#e2e8f0", fontFamily: "'Noto Sans TC', sans-serif" }}>
-                    <header style={{ padding: "18px 32px", borderBottom: "1px solid rgba(99,179,237,0.1)", display: "flex", justifyContent: "space-between", background: "rgba(8,16,31,0.9)", backdropFilter: "blur(10px)", sticky: "top" }}>
-                        <div style={{ fontWeight: 900, display: "flex", alignItems: "center", gap: 10 }}>
-                            <div style={{ background: "#4f9cf9", padding: "4px 8px", borderRadius: 6 }}>Rx</div>
-                            <span>Clinical Pro</span>
+                <div className="p-4 md:p-8">
+                    <header className="max-w-4xl mx-auto flex justify-between items-center mb-12">
+                        <div className="flex items-center gap-3 cursor-pointer" onClick={() => {setResult(null); setQuery("");}}>
+                            <div className="bg-blue-600 w-10 h-10 rounded-xl flex items-center justify-center font-bold text-white shadow-lg shadow-blue-500/30">Rx</div>
+                            <h1 className="text-xl font-black italic">CLINICAL <span className="text-blue-500">PRO</span></h1>
                         </div>
-                        <div style={{ fontSize: 12, opacity: 0.6 }}>{timer.toFixed(1)}s</div>
+                        <div className="text-xs font-mono opacity-40">{source} {timer}s</div>
                     </header>
 
-                    <main style={{ maxWidth: 800, margin: "0 auto", padding: "60px 20px" }}>
+                    <main className="max-w-3xl mx-auto">
                         {!result && !loading ? (
-                            <div style={{ animation: "cfadeup 0.5s forwards" }}>
-                                <h1 style={{ textAlign: "center", fontSize: 40, fontWeight: 900, marginBottom: 40 }}>藥事快搜 <span style={{ color: "#4f9cf9" }}>Pro</span></h1>
-                                <div style={{ display: "flex", background: "#111827", borderRadius: 16, border: "1px solid #1e293b", overflow: "hidden" }}>
+                            <div className="animate-[cfadeup_0.5s]">
+                                <div className="bg-[#111827] border border-blue-900/30 p-2 rounded-2xl flex shadow-2xl">
                                     <input 
-                                        style={{ flex: 1, padding: 20, background: "none", border: "none", color: "#fff", outline: "none" }} 
-                                        placeholder="輸入藥品名稱..." 
+                                        className="bg-transparent flex-1 px-4 py-3 outline-none font-bold text-lg" 
+                                        placeholder="輸入學名或商品名..."
                                         value={query}
                                         onChange={e => setQuery(e.target.value)}
                                         onKeyDown={e => e.key === 'Enter' && search()}
                                     />
-                                    <button onClick={() => search()} style={{ background: "#4f9cf9", color: "#fff", padding: "0 30px", fontWeight: "bold" }}>搜尋</button>
+                                    <button onClick={() => search()} className="bg-blue-600 px-8 rounded-xl font-bold hover:bg-blue-500 transition-colors">搜尋</button>
                                 </div>
-                                <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 20, justifyContent: "center" }}>
+                                <div className="flex flex-wrap gap-2 mt-6 justify-center">
                                     {QUICK_TAGS.map(tag => (
-                                        <button key={tag} onClick={() => search(tag)} style={{ fontSize: 12, background: "#111827", border: "1px solid #1e293b", padding: "6px 12px", borderRadius: 8 }}>{tag}</button>
+                                        <button key={tag} onClick={() => search(tag)} className="text-xs bg-[#111827] border border-slate-800 px-3 py-1.5 rounded-lg opacity-60 hover:opacity-100 hover:border-blue-500">{tag}</button>
                                     ))}
                                 </div>
                             </div>
                         ) : loading ? (
-                            <div style={{ textAlign: "center", padding: 100 }}>
-                                <div style={{ width: 50, height: 50, border: "3px solid #1e293b", borderTopColor: "#4f9cf9", borderRadius: "50%", animation: "cspin 1s linear infinite", margin: "0 auto 20px" }}></div>
-                                <p style={{ color: "#4f9cf9", fontSize: 14 }}>正在調研專業資料庫...</p>
+                            <div className="text-center py-24">
+                                <div className="w-12 h-12 border-2 border-blue-500/20 border-t-blue-500 rounded-full animate-[cspin_1s_linear_infinite] mx-auto mb-6"></div>
+                                <p className="text-blue-400 font-mono text-sm tracking-widest">RESEARCHING DATABASE...</p>
                             </div>
                         ) : (
-                            <div style={{ animation: "cfadeup 0.5s forwards" }}>
-                                <button onClick={() => {setResult(null); setQuery("");}} style={{ marginBottom: 20, opacity: 0.5 }}>← 返回</button>
-                                <div style={{ background: "#111827", borderRadius: 24, border: "1px solid #1e293b", overflow: "hidden" }}>
-                                    <div style={{ background: "#1e293b", padding: "20px 30px" }}>
-                                        <h2 style={{ fontSize: 24, fontWeight: 900 }}>{query}</h2>
+                            <div className="animate-[cfadeup_0.5s]">
+                                <div className="bg-[#111827] border border-blue-900/20 rounded-3xl overflow-hidden shadow-2xl">
+                                    <div className="bg-gradient-to-r from-blue-900/20 to-transparent p-8 border-b border-blue-900/10">
+                                        <h2 className="text-3xl font-black tracking-tight">{query}</h2>
                                     </div>
-                                    <div style={{ padding: 30 }}>
+                                    <div className="p-8 space-y-10">
                                         {blocks.map((b, i) => (
-                                            <div key={i} style={{ marginBottom: 30 }}>
-                                                <div style={{ color: "#4f9cf9", fontWeight: "bold", marginBottom: 10 }}>{SECTION_ICONS[b.title]} {b.title}</div>
-                                                <div style={{ whiteSpace: "pre-wrap", color: "#94a3b8", fontSize: 15, lineHeight: 1.8 }}>{b.content}</div>
+                                            <div key={i}>
+                                                <div className="text-blue-500 text-xs font-black tracking-widest mb-3 uppercase flex items-center gap-2">
+                                                    <span className="w-1.5 h-1.5 bg-blue-500 rounded-full"></span>
+                                                    {SECTION_ICONS[b.title]} {b.title}
+                                                </div>
+                                                <div className="text-slate-400 leading-relaxed text-sm whitespace-pre-wrap">{b.content}</div>
                                             </div>
                                         ))}
                                     </div>
                                 </div>
+                                <button onClick={() => {setResult(null); setQuery("");}} className="mt-8 text-slate-600 hover:text-blue-400 text-sm font-bold transition-colors">← 返回重新搜尋</button>
                             </div>
                         )}
                     </main>
@@ -194,5 +206,5 @@ html_content = """
 </html>
 """
 
-# 3. 使用 Streamlit 元件顯示
-components.html(html_content, height=1000, scrolling=True)
+# 3. 渲染
+components.html(html_content, height=1200, scrolling=True)
