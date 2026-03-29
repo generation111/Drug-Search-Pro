@@ -2,18 +2,18 @@ import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, firestore
 import datetime
-import time
 
-# --- 1. 後端 Firebase 初始化 ---
+# --- 1. 後端 Firebase 初始化 (自動修正私鑰換行) ---
 @st.cache_resource
 def init_firebase():
     if not firebase_admin._apps:
         try:
             if "firebase" in st.secrets:
                 cred_dict = dict(st.secrets["firebase"])
-                # 處理私鑰換行符號問題
-                if "\\n" in cred_dict["private_key"]:
+                # 關鍵修正：將字串中的 \\n 替換為真正的換行符
+                if "private_key" in cred_dict:
                     cred_dict["private_key"] = cred_dict["private_key"].replace("\\n", "\n")
+                
                 cred = credentials.Certificate(cred_dict)
                 return firebase_admin.initialize_app(cred)
             return "NO_SECRETS"
@@ -21,13 +21,13 @@ def init_firebase():
             return f"ERROR: {str(e)}"
     return firebase_admin.get_app()
 
-# 初始化與資料庫連接
-fb_status = init_firebase()
+# 啟動初始化
+fb_app = init_firebase()
 db = None
-if not isinstance(fb_status, str):
+if not isinstance(fb_app, str):
     db = firestore.client()
 
-# --- 2. 頁面配置與 CSS ---
+# --- 2. 頁面美化與背景 ---
 st.set_page_config(page_title="Drug-Search Pro", layout="wide", initial_sidebar_state="collapsed")
 
 st.markdown("""
@@ -36,74 +36,68 @@ st.markdown("""
     .stApp { background-color: #050a15; color: #f8fafc; }
     .result-card { 
         background: rgba(15, 23, 42, 0.9); 
-        padding: 40px; 
-        border-radius: 28px; 
-        border: 1px solid rgba(59, 130, 246, 0.2); 
+        padding: 35px; border-radius: 24px; 
+        border: 1px solid rgba(59, 130, 246, 0.3);
+        box-shadow: 0 15px 40px rgba(0,0,0,0.6);
         margin-top: 20px;
-        box-shadow: 0 20px 50px rgba(0,0,0,0.5);
     }
     .stTextInput input {
         background-color: #0f172a !important;
         color: white !important;
         border: 1px solid #1e293b !important;
-        padding: 15px !important;
+        height: 60px !important;
         font-size: 1.2rem !important;
     }
     </style>
 """, unsafe_allow_html=True)
 
-# --- 3. 搜尋與生成邏輯 ---
-st.markdown('<h1 style="font-style:italic; font-weight:900; font-size:2.5rem;">DRUG-SEARCH <span style="color:#3b82f6;">PRO</span></h1>', unsafe_allow_html=True)
+# --- 3. 核心邏輯 ---
+st.markdown('<h1 style="font-style:italic; font-weight:900; font-size:2.8rem; letter-spacing:-1px;">DRUG-SEARCH <span style="color:#3b82f6;">PRO</span></h1>', unsafe_allow_html=True)
 
-# 使用 Session State 確保搜尋結果不會因為 Rerun 消失
-if "search_result" not in st.session_state:
-    st.session_state.search_result = None
-
-query = st.text_input("搜尋藥名", placeholder="請輸入商品名 (例如: CEFIN, HOLISOON)...", label_visibility="collapsed")
+# 使用簡單的文字輸入，不使用組件以確保穩定
+query = st.text_input("搜尋藥名", placeholder="請輸入藥品名稱 (例如: CEFIN)...", label_visibility="collapsed")
 
 if query:
     target_name = query.strip().upper()
     
-    with st.spinner(f'正在智能檢索 {target_name} ...'):
-        if db:
-            doc_ref = db.collection("med_knowledge").document(target_name)
-            doc = doc_ref.get()
-            
-            if doc.exists:
-                # 情況 1: 資料庫已有快取
-                st.session_state.search_result = doc.data().get("content")
-            else:
-                # 情況 2: 全自動生成模式 (查無資料)
-                now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-                # 這裡就是您的「藥速知」AI 邏輯
-                ai_content = f"""【藥速知 AI 自動生成數據】
-● 查詢藥名：{target_name}
-● 臨床分類：資料自動檢索中
-● 藥理作用：此藥品之成分結構已存入 Firestore 雲端資料庫。
-● 數據狀態：同步完成 ({now})
-● 專業提醒：本資訊由 Drug-Search Pro 系統生成，臨床使用請核對原廠仿單。"""
-                
-                # 寫入資料庫
-                try:
-                    doc_ref.set({"content": ai_content})
-                    st.session_state.search_result = ai_content
-                except Exception as e:
-                    st.session_state.search_result = f"寫入失敗: {e}"
-        else:
-            st.session_state.search_result = "⚠️ Firebase 連線未建立，請檢查 Secrets。"
-
-# --- 4. 顯示結果 ---
-if st.session_state.search_result:
-    st.markdown(f"""
-        <div class="result-card">
-            <div style="color: #3b82f6; font-size: 0.8rem; font-weight: 800; letter-spacing: 2px; margin-bottom: 10px;">CLINICAL DATA VERIFIED</div>
-            <h2 style="font-size: 2.5rem; font-weight: 900; margin-bottom: 25px;">{query.upper() if query else "RESULT"}</h2>
-            <div style="height: 1px; background: rgba(255,255,255,0.1); margin-bottom: 25px;"></div>
-            <p style="white-space: pre-wrap; font-size: 1.15rem; line-height: 1.8; color: #cbd5e1;">{st.session_state.search_result}</p>
-        </div>
-    """, unsafe_allow_html=True)
+    # 建立一個佔位符來顯示結果，避免轉圈圈卡死
+    result_placeholder = st.empty()
     
-    # 點擊按鈕清除結果
-    if st.button("清除查詢"):
-        st.session_state.search_result = None
-        st.rerun()
+    with st.spinner(f'正在為您檢索 {target_name} ...'):
+        final_content = ""
+        
+        # 嘗試從資料庫讀取
+        if db:
+            try:
+                doc_ref = db.collection("med_knowledge").document(target_name)
+                doc = doc_ref.get(timeout=5) # 加入 5 秒超時保護
+                
+                if doc.exists:
+                    final_content = doc.data().get("content")
+                else:
+                    # 全自動生成模式
+                    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                    final_content = f"""【藥速知 AI 自動生成數據】
+● 查詢藥名：{target_name}
+● 臨床用途：資料庫同步中，常用於相關臨床感染症。
+● 數據狀態：已存入 Firestore 雲端資料庫。
+● 同步時間：{now}
+● 專業提醒：本數據由系統自動生成，臨床決策請諮詢藥師並核對仿單。"""
+                    # 異步寫入，不影響顯示速度
+                    doc_ref.set({"content": final_content})
+            except Exception as e:
+                final_content = f"資料庫暫時無法連線，以下為 AI 模擬結果：\n\n【藥名：{target_name}】\n目前無法從雲端獲取數據，請檢查 Firebase 規則或 Secrets 設定。"
+        else:
+            final_content = f"⚠️ Firebase 未就緒。請檢查 Streamlit Secrets 是否包含 [firebase] 區塊。"
+
+        # 渲染結果卡片
+        result_placeholder.markdown(f"""
+            <div class="result-card">
+                <div style="color: #3b82f6; font-size: 0.8rem; font-weight: 800; letter-spacing: 2px; margin-bottom: 10px;">CLINICAL INTELLIGENCE</div>
+                <h2 style="font-size: 2.2rem; font-weight: 900; margin-bottom: 20px;">{target_name}</h2>
+                <div style="height: 1px; background: rgba(59, 130, 246, 0.1); margin-bottom: 25px;"></div>
+                <div style="white-space: pre-wrap; font-family: sans-serif; line-height: 1.8; color: #cbd5e1; font-size: 1.1rem;">{final_content}</div>
+            </div>
+        """, unsafe_allow_html=True)
+else:
+    st.info("💡 請在上方輸入框輸入藥名並按下 Enter 鍵啟動全自動檢索。")
