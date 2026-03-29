@@ -9,139 +9,82 @@ import datetime
 def init_firebase():
     if not firebase_admin._apps:
         try:
-            # 確保 Secrets 格式正確
             cred_dict = dict(st.secrets["firebase"])
             cred = credentials.Certificate(cred_dict)
             return firebase_admin.initialize_app(cred)
         except Exception as e:
-            st.error(f"Firebase Admin 認證失敗: {e}")
+            st.error(f"Firebase Admin 初始化失敗: {e}")
             return None
     return firebase_admin.get_app()
 
 admin_app = init_firebase()
-if admin_app:
-    db_admin = firestore.client()
-else:
-    st.warning("正在等待 Firebase 權限配置...")
-    st.stop()
+db_admin = firestore.client() if admin_app else None
 
-# --- 2. AI 自動生成與寫入邏輯 ---
+# --- 2. AI 自動生成邏輯 ---
 def ai_generate_and_save(drug_name):
+    if not db_admin: return False
     drug_name = drug_name.upper()
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
-    # 自動生成的結構化內容
     ai_content = f"""【藥速知 AI 自動生成數據】
 ● 商品名稱：{drug_name}
-● 數據狀態：自動同步完成 ({now})
-● 臨床用途：此藥品資料已透過系統後台進行結構化校正。
-● 藥理作用：請參考 TFDA 最新公告之仿單資訊。
-● 專業提醒：本資訊由 AI 自動生成，臨床決策請諮詢專業藥師。"""
+● 數據狀態：同步完成 ({now})
+● 臨床用途：此藥品資料已透過 AI 進行結構化整理。
+● 藥理作用：請參考 TFDA 最新公告仿單。
+● 專業提醒：本資訊僅供參考，臨床決策請諮詢藥師。"""
     
     try:
-        doc_ref = db_admin.collection("med_knowledge").document(drug_name)
-        doc_ref.set({"content": ai_content})
+        db_admin.collection("med_knowledge").document(drug_name).set({"content": ai_content})
         return True
-    except Exception as e:
-        st.error(f"寫入資料庫失敗: {e}")
+    except:
         return False
 
-# --- 3. 處理自動生成請求 ---
-params = st.query_params
-if "action" in params and params["action"] == "generate":
-    target_name = params["name"]
-    if ai_generate_and_save(target_name):
-        st.query_params.clear()
-        st.rerun()
+# --- 3. 介面與搜尋邏輯 ---
+st.set_page_config(page_title="Drug-Search Pro", layout="wide")
 
-# --- 4. 前端 UI (注意這裡的雙大括號處理) ---
-st.set_page_config(page_title="Drug-Search Pro", layout="wide", initial_sidebar_state="collapsed")
+# 使用 Streamlit 原生輸入框來避免 iframe 權限問題
+st.markdown('<h1 style="color:white; font-style:italic; font-weight:900;">DRUG-SEARCH <span style="color:#3b82f6;">PRO</span></h1>', unsafe_allow_html=True)
 
-# 這裡使用普通的字串，避免 f-string 的轉義問題
-html_content = """
-<!DOCTYPE html>
-<html>
-<head>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;900&display=swap');
-        body { background: #050a15; font-family: 'Inter', sans-serif; color: #e2e8f0; }
-        .glass { background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(12px); border: 1px solid rgba(59, 130, 246, 0.2); }
-    </style>
-</head>
-<body>
-    <div id="root"></div>
-    <script type="text/babel">
-        const { useState } = React;
+# 建立搜尋列
+col1, col2 = st.columns([4, 1])
+with col1:
+    query = st.text_input("", placeholder="輸入藥名 (例如: CHEF)...", label_visibility="collapsed")
+with col2:
+    search_btn = st.button("立即檢索", use_container_width=True)
 
-        const firebaseConfig = {
-            apiKey: "AIzaSyDYzAXOd4xyJ5NOuwJl5nj7XgcVmba_54I",
-            authDomain: "drug-search-pro.firebaseapp.com",
-            projectId: "drug-search-pro",
-            appId: "1:601449029455:web:d05d7592b32780efe86f3a"
-        };
+if query or search_btn:
+    name = query.strip().upper()
+    if name:
+        # 先檢查資料庫
+        doc = db_admin.collection("med_knowledge").document(name).get()
         
-        if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
-        const db = firebase.firestore();
+        if doc.exists:
+            result = doc.data().get("content")
+        else:
+            # 沒資料時，直接在 Python 端執行生成，不需跳轉
+            with st.status(f"正在為您同步「{name}」的數據...", expanded=True) as status:
+                success = ai_generate_and_save(name)
+                if success:
+                    status.update(label="數據同步成功！", state="complete")
+                    # 重新讀取剛生成的資料
+                    result = ai_generate_and_save(name) # 這裡直接拿內容
+                    st.rerun()
+                else:
+                    result = "生成失敗，請檢查資料庫權限。"
 
-        const App = () => {
-            const [query, setQuery] = useState("");
-            const [result, setResult] = useState(null);
-            const [loading, setLoading] = useState(false);
+        # 顯示結果
+        st.markdown(f"""
+        <div style="background: rgba(15, 23, 42, 0.8); padding: 40px; border-radius: 24px; border: 1px solid rgba(59, 130, 246, 0.2); color: #e2e8f0; margin-top: 20px;">
+            <h2 style="color: #3b82f6; font-weight: 900; font-size: 2rem; margin-bottom: 20px;">{name}</h2>
+            <pre style="white-space: pre-wrap; font-family: sans-serif; line-height: 1.8; font-size: 1.1rem;">{doc.data().get('content') if doc.exists else '資料已存入，請再次點擊搜尋。'}</pre>
+        </div>
+        """, unsafe_allow_html=True)
 
-            const handleSearch = async () => {
-                if (!query) return;
-                setLoading(true);
-                const name = query.trim().toUpperCase();
-                
-                try {
-                    const doc = await db.collection("med_knowledge").doc(name).get();
-                    if (doc.exists) {
-                        setResult(doc.data().content);
-                        setLoading(false);
-                    } else {
-                        setResult("AI 正在為您同步「" + name + "」的數據，請稍候...");
-                        // 跳轉通知 Python
-                        window.parent.location.href = window.parent.location.origin + "?action=generate&name=" + name;
-                    }
-                } catch (e) {
-                    setResult("系統錯誤: " + e.message);
-                    setLoading(false);
-                }
-            };
-
-            return (
-                <div className="max-w-4xl mx-auto p-10">
-                    <h1 className="text-3xl font-black italic mb-10 tracking-tighter">DRUG-SEARCH <span className="text-blue-500">PRO</span></h1>
-                    <div className="glass p-2 rounded-2xl flex shadow-2xl mb-10">
-                        <input 
-                            className="bg-transparent flex-1 px-6 py-4 text-xl outline-none" 
-                            placeholder="輸入藥名 (例如: CEFIN)..."
-                            value={query}
-                            onChange={e => setQuery(e.target.value)}
-                            onKeyDown={e => e.key === 'Enter' && handleSearch()}
-                        />
-                        <button onClick={handleSearch} className="bg-blue-600 px-10 py-4 rounded-xl font-bold hover:bg-blue-500 transition-all">
-                            {loading ? "處理中..." : "檢索"}
-                        </button>
-                    </div>
-                    {result && (
-                        <div className="glass p-10 rounded-3xl border-blue-900/50 animate-pulse">
-                            <pre className="whitespace-pre-wrap font-sans text-slate-300 leading-relaxed text-lg">{result}</pre>
-                        </div>
-                    )}
-                </div>
-            );
-        };
-        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
-    </script>
-</body>
-</html>
-"""
-
-components.html(html_content, height=1000, scrolling=True)
+# --- 背景樣式 ---
+st.markdown("""
+<style>
+    .stApp { background: #050a15; }
+    input { background-color: rgba(15, 23, 42, 0.8) !important; color: white !important; border: 1px solid rgba(59, 130, 246, 0.3) !important; border-radius: 12px !important; padding: 25px !important; font-size: 1.2rem !important; }
+    button { background-color: #3b82f6 !important; border-radius: 12px !important; padding: 12px !important; font-weight: bold !important; height: 65px !important; }
+</style>
+""", unsafe_allow_html=True)
