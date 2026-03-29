@@ -29,6 +29,14 @@ st.markdown("---")
 
 # --- 3. 搜尋邏輯 (移除所有資料庫干擾) ---
 query = st.text_input("請輸入藥品商品名或成分名", placeholder="例如: CHEF, CEFIN, HOLISOON...", label_visibility="collapsed")
+# 在 app.py 的搜尋邏輯中加入這段判斷
+try:
+    # ... 原本的 AI 請求代碼 ...
+except Exception as e:
+    if "401" in str(e):
+        st.error("❌ API Key 格式錯誤！偵測到您可能填成了 Google API Key (AIza...)，請更換為 OpenAI 的 'sk-' 金鑰。")
+    else:
+        st.error(f"❌ 系統連線異常：{e}")
 
 if query:
     target = query.strip().upper()
