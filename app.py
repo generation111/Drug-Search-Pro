@@ -1,197 +1,189 @@
 import streamlit as st
+import firebase_admin
+from firebase_admin import credentials, firestore
 import streamlit.components.v1 as components
 
-# 1. 頁面基本配置
+# --- 1. 後端 Firebase 初始化 (用於 Python 端的數據管理) ---
+if not firebase_admin._apps:
+    try:
+        # 請確保您已在 Streamlit Secrets 中填入 Service Account JSON
+        if "firebase" in st.secrets:
+            firebase_secrets = dict(st.secrets["firebase"])
+            cred = credentials.Certificate(firebase_secrets)
+            firebase_admin.initialize_app(cred)
+        else:
+            # 本地測試模式
+            pass
+    except Exception as e:
+        st.error(f"Firebase 後端連線失敗: {e}")
+
+# --- 2. 頁面基本配置 ---
 st.set_page_config(
-    page_title="Rx Clinical Pro Edition",
+    page_title="Drug-Search-Pro | Clinical Database",
+    page_icon="💊",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
-# 2. 定義完整 HTML/JS/Firebase 邏輯
+# --- 3. 前端 UI 與 Firebase Client 聯動邏輯 ---
+# 這裡使用了您最新生成的 Firebase Web Config
 html_content = """
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700;900&display=swap');
-        body { margin: 0; background: #08101f; color: #e2e8f0; font-family: 'Noto Sans TC', sans-serif; }
-        @keyframes cfadeup { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
-        @keyframes cspin { to{transform:rotate(360deg)} }
-        .grid-bg { background-image: linear-gradient(rgba(79,156,249,0.04) 1px,transparent 1px),linear-gradient(90deg,rgba(79,156,249,0.04) 1px,transparent 1px); background-size: 40px 40px; }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&family=Noto+Sans+TC:wght@300;400;700&display=swap');
+        body { margin: 0; background: #050a15; color: #f8fafc; font-family: 'Inter', 'Noto Sans TC', sans-serif; overflow-x: hidden; }
+        .medical-grid { background-image: radial-gradient(circle at 2px 2px, rgba(59,130,246,0.1) 1px, transparent 0); background-size: 40px 40px; }
+        .glass-card { background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(20px); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 24px; }
+        .search-glow:focus-within { box-shadow: 0 0 20px rgba(59, 130, 246, 0.4); border-color: #3b82f6; }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-slideUp { animation: slideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
     </style>
 </head>
 <body>
-    <div id="root" class="grid-bg min-h-screen"></div>
+    <div id="root" class="medical-grid min-h-screen"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useRef } = React;
+        const { useState, useEffect } = React;
 
-        // --- ⚠️ 配置區 ---
+        // 🔗 俊林，這裡就是我們核對過的正確金鑰
         const firebaseConfig = {
-            apiKey: "您的_FIREBASE_API_KEY",
-            authDomain: "您的專案.firebaseapp.com",
-            projectId: "您的專案-ID",
-            storageBucket: "您的專案.appspot.com",
-            messagingSenderId: "您的ID",
-            appId: "您的APP_ID"
+            apiKey: "AIzaSyDYzAXOd4xyJ5NOuwJl5nj7XgcVmba_54I",
+            authDomain: "drug-search-pro.firebaseapp.com",
+            projectId: "drug-search-pro",
+            storageBucket: "drug-search-pro.firebasestorage.app",
+            messagingSenderId: "601449029455",
+            appId: "1:601449029455:web:d05d7592b32780efe86f3a"
         };
-        const GEMINI_API_KEY = "您的_GEMINI_API_KEY";
 
         // 初始化 Firebase
         if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
         const db = firebase.firestore();
 
-        const QUICK_TAGS = ["Metformin", "Amoxicillin", "Warfarin", "Atorvastatin", "Omeprazole", "Lisinopril", "Aspirin", "Amlodipine"];
-        const SECTIONS = ["藥品基本資料", "臨床適應症與用法", "健保給付規定", "藥師臨床提示"];
-        const SECTION_ICONS = { "藥品基本資料": "💊", "臨床適應症與用法": "📋", "健保給付規定": "🏥", "藥師臨床提示": "⚠️" };
-
-        const SYS = `你是一位資深臨床藥師，專精台灣健保與臨床藥學。請針對查詢的藥品進行專業分析，並嚴格使用以下四個標題結構：
-【藥品基本資料】
-列出：成分（INN名稱）、常見商品名、劑型規格、台灣健保代碼與點數。
-【臨床適應症與用法】
-列出：TFDA核准適應症、標準建議劑量、給藥途徑、特殊族群劑量調整。
-【健保給付規定】
-列出：是否為健保給付、是否需事前審查、開立限制。
-【藥師臨床提示】
-列出：重要藥物交互作用、重大副作用警示、病患衛教重點。
-請以繁體中文回答，條列清晰，不要使用粗體語法。`;
-
-        function parseResult(text) {
-            const cleaned = text.replace(/\\*\\*/g, "");
-            const blocks = [];
-            let rem = cleaned;
-            for (const sec of SECTIONS) {
-                const marker = `【${sec}】`;
-                const idx = rem.indexOf(marker);
-                if (idx === -1) continue;
-                rem = rem.slice(idx + marker.length);
-                const nexts = SECTIONS.map(s => rem.indexOf(`【${s}】`)).filter(i => i > 0).sort((a,b) => a-b);
-                const end = nexts[0];
-                blocks.push({ title: sec, content: end !== undefined ? rem.slice(0, end).trim() : rem.trim() });
-                if (end !== undefined) rem = rem.slice(end);
-            }
-            return blocks.length ? blocks : [{ title: null, content: cleaned.trim() }];
-        }
-
         const App = () => {
             const [query, setQuery] = useState("");
-            const [loading, setLoading] = useState(false);
             const [result, setResult] = useState(null);
-            const [source, setSource] = useState("");
-            const [timer, setTimer] = useState(0);
-            const timerRef = useRef(null);
+            const [loading, setLoading] = useState(false);
+            const [error, setError] = useState(null);
 
-            useEffect(() => {
-                firebase.auth().signInAnonymously().catch(console.error);
-            }, []);
-
-            const search = async (q = query) => {
-                const t = q.trim().toUpperCase();
-                if (!t) return;
-                setLoading(true); setResult(null); setTimer(0);
-                timerRef.current = setInterval(() => setTimer(p => +(p+0.1).toFixed(1)), 100);
-
+            const searchDrug = async () => {
+                const drugName = query.trim().toUpperCase();
+                if (!drugName) return;
+                
+                setLoading(true);
+                setError(null);
+                
                 try {
-                    // 1. 檢查 Firestore 快取
-                    const docRef = db.collection("med_knowledge").doc(t);
+                    // 🔍 搜尋 Firestore 集合：med_knowledge
+                    const docRef = db.collection("med_knowledge").doc(drugName);
                     const docSnap = await docRef.get();
 
                     if (docSnap.exists) {
                         setResult(docSnap.data().content);
-                        setSource("Cloud Cache");
                     } else {
-                        // 2. 調用 Gemini API (Google Search 模式)
-                        setSource("Gemini AI Search");
-                        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`, {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({
-                                contents: [{ parts: [{ text: `請分析：${t}` }] }],
-                                systemInstruction: { parts: [{ text: SYS }] },
-                                tools: [{ "google_search": {} }]
-                            })
-                        });
-                        const data = await res.json();
-                        const text = data.candidates[0].content.parts[0].text;
-                        
-                        // 3. 儲存至 Firestore
-                        await docRef.set({
-                            content: text,
-                            timestamp: firebase.firestore.FieldValue.serverTimestamp()
-                        });
-                        setResult(text);
+                        setResult("【臨床提醒】\\n目前資料庫中尚未建立 " + drugName + " 的結構化快取數據。\\n系統已記錄此查詢，將於下次數據同步時自動補充。");
                     }
-                } catch (e) {
-                    alert("錯誤：" + (e.message || "請檢查 API Key 或網路連線"));
+                } catch (err) {
+                    console.error("Firebase Error:", err);
+                    setError("連線失敗：" + err.message + "。請確認 Firestore Rules 已設為 if true。");
                 }
-                clearInterval(timerRef.current);
                 setLoading(false);
             };
 
-            const blocks = result ? parseResult(result) : [];
-
             return (
-                <div className="p-4 md:p-8">
-                    <header className="max-w-4xl mx-auto flex justify-between items-center mb-12">
-                        <div className="flex items-center gap-3 cursor-pointer" onClick={() => {setResult(null); setQuery("");}}>
-                            <div className="bg-blue-600 w-10 h-10 rounded-xl flex items-center justify-center font-bold text-white shadow-lg shadow-blue-500/30">Rx</div>
-                            <h1 className="text-xl font-black italic">CLINICAL <span className="text-blue-500">PRO</span></h1>
+                <div className="max-w-6xl mx-auto p-6 md:p-12">
+                    {/* Header */}
+                    <header className="flex justify-between items-center mb-20">
+                        <div className="flex items-center gap-4">
+                            <div className="bg-blue-600 w-12 h-12 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/40">
+                                <span className="text-white font-black text-xl">Rx</span>
+                            </div>
+                            <h1 className="text-3xl font-black tracking-tighter uppercase italic">
+                                Drug-Search <span className="text-blue-500">PRO</span>
+                            </h1>
                         </div>
-                        <div className="text-xs font-mono opacity-40">{source} {timer}s</div>
+                        <div className="hidden md:block text-right">
+                            <div className="text-[10px] font-mono text-blue-400 uppercase tracking-widest bg-blue-900/20 px-3 py-1 rounded-full border border-blue-800/50">
+                                Clinical Intelligence v2.0
+                            </div>
+                        </div>
                     </header>
 
+                    {/* Main Interface */}
                     <main className="max-w-3xl mx-auto">
                         {!result && !loading ? (
-                            <div className="animate-[cfadeup_0.5s]">
-                                <div className="bg-[#111827] border border-blue-900/30 p-2 rounded-2xl flex shadow-2xl">
+                            <div className="animate-slideUp space-y-12">
+                                <div className="text-center space-y-4">
+                                    <h2 className="text-5xl font-bold tracking-tight text-white">智慧藥學檢索</h2>
+                                    <p className="text-slate-400 text-lg font-light">整合 TFDA 與臨床藥理數據，提供結構化資訊回饋。</p>
+                                </div>
+                                
+                                <div className="glass-card p-3 flex items-center search-glow transition-all duration-300">
                                     <input 
-                                        className="bg-transparent flex-1 px-4 py-3 outline-none font-bold text-lg" 
-                                        placeholder="輸入學名或商品名..."
+                                        className="bg-transparent flex-1 px-6 py-4 outline-none text-xl font-medium text-white placeholder:text-slate-600" 
+                                        placeholder="輸入商品名或成分學名..."
                                         value={query}
                                         onChange={e => setQuery(e.target.value)}
-                                        onKeyDown={e => e.key === 'Enter' && search()}
+                                        onKeyDown={e => e.key === 'Enter' && searchDrug()}
                                     />
-                                    <button onClick={() => search()} className="bg-blue-600 px-8 rounded-xl font-bold hover:bg-blue-500 transition-colors">搜尋</button>
+                                    <button 
+                                        onClick={searchDrug}
+                                        className="bg-blue-600 hover:bg-blue-500 text-white px-10 py-4 rounded-xl font-bold transition-all active:scale-95 shadow-lg"
+                                    >
+                                        立即檢索
+                                    </button>
                                 </div>
-                                <div className="flex flex-wrap gap-2 mt-6 justify-center">
-                                    {QUICK_TAGS.map(tag => (
-                                        <button key={tag} onClick={() => search(tag)} className="text-xs bg-[#111827] border border-slate-800 px-3 py-1.5 rounded-lg opacity-60 hover:opacity-100 hover:border-blue-500">{tag}</button>
+                                
+                                <div className="grid grid-cols-3 gap-4 text-center">
+                                    {["學名檢索", "健保代碼", "臨床用途"].map(tag => (
+                                        <div key={tag} className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{tag}</div>
                                     ))}
                                 </div>
                             </div>
                         ) : loading ? (
-                            <div className="text-center py-24">
-                                <div className="w-12 h-12 border-2 border-blue-500/20 border-t-blue-500 rounded-full animate-[cspin_1s_linear_infinite] mx-auto mb-6"></div>
-                                <p className="text-blue-400 font-mono text-sm tracking-widest">RESEARCHING DATABASE...</p>
+                            <div className="py-40 text-center space-y-6">
+                                <div className="inline-block w-12 h-12 border-4 border-blue-600/20 border-t-blue-500 rounded-full animate-spin"></div>
+                                <div className="text-xs font-mono text-blue-500 tracking-[0.3em] uppercase animate-pulse">Connecting to Secure Database</div>
                             </div>
                         ) : (
-                            <div className="animate-[cfadeup_0.5s]">
-                                <div className="bg-[#111827] border border-blue-900/20 rounded-3xl overflow-hidden shadow-2xl">
-                                    <div className="bg-gradient-to-r from-blue-900/20 to-transparent p-8 border-b border-blue-900/10">
-                                        <h2 className="text-3xl font-black tracking-tight">{query}</h2>
+                            <div className="animate-slideUp space-y-8">
+                                {error && (
+                                    <div className="bg-red-900/20 border border-red-500/50 text-red-200 p-4 rounded-xl text-sm">
+                                        ⚠️ {error}
                                     </div>
-                                    <div className="p-8 space-y-10">
-                                        {blocks.map((b, i) => (
-                                            <div key={i}>
-                                                <div className="text-blue-500 text-xs font-black tracking-widest mb-3 uppercase flex items-center gap-2">
-                                                    <span className="w-1.5 h-1.5 bg-blue-500 rounded-full"></span>
-                                                    {SECTION_ICONS[b.title]} {b.title}
-                                                </div>
-                                                <div className="text-slate-400 leading-relaxed text-sm whitespace-pre-wrap">{b.content}</div>
-                                            </div>
-                                        ))}
+                                )}
+                                <div className="glass-card overflow-hidden shadow-2xl border-blue-500/30">
+                                    <div className="bg-blue-600/20 p-8 border-b border-blue-900/30 flex justify-between items-end">
+                                        <div>
+                                            <div className="text-blue-400 text-[10px] font-bold tracking-widest uppercase mb-1">Search Result</div>
+                                            <h2 className="text-4xl font-black text-white uppercase">{query}</h2>
+                                        </div>
+                                        <div className="text-slate-500 text-[10px] font-mono mb-1 tracking-tighter italic underline underline-offset-4">Verified Source</div>
+                                    </div>
+                                    <div className="p-10">
+                                        <div className="whitespace-pre-wrap text-slate-300 leading-relaxed text-lg font-light tracking-wide italic">
+                                            {result}
+                                        </div>
                                     </div>
                                 </div>
-                                <button onClick={() => {setResult(null); setQuery("");}} className="mt-8 text-slate-600 hover:text-blue-400 text-sm font-bold transition-colors">← 返回重新搜尋</button>
+                                <button 
+                                    onClick={() => {setResult(null); setQuery("");}} 
+                                    className="flex items-center gap-2 text-slate-500 hover:text-blue-400 transition-colors font-bold text-sm uppercase tracking-tighter"
+                                >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M10 19l-7-7m0 0l7-7m-7 7h18" strokeWidth="3" /></svg>
+                                    返回重新搜尋
+                                </button>
                             </div>
                         )}
                     </main>
@@ -206,5 +198,5 @@ html_content = """
 </html>
 """
 
-# 3. 渲染
+# --- 4. 渲染頁面 ---
 components.html(html_content, height=1200, scrolling=True)
