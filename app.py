@@ -1,6 +1,16 @@
 import streamlit as st
-from openai import OpenAI
-from duckduckgo_search import DDGS # 需 pip install duckduckgo-search
+
+# 嘗試匯入套件，若失敗則給予友善提示
+try:
+    from duckduckgo_search import DDGS
+    from openai import OpenAI
+except ModuleNotFoundError:
+    st.error("缺少必要套件！請確保專案目錄下有 requirements.txt，內容包含 openai 與 duckduckgo-search")
+    st.stop()
+
+# --- 接下來才是您的正式代碼 ---
+# ... (其餘代碼保持不變)
+
 
 # --- 1. 專業 UI 配置 ---
 st.set_page_config(page_title="藥事快搜 Pro Edition", layout="wide")
