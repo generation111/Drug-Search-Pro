@@ -54,13 +54,13 @@ st.markdown("""
 # --- 3. 核心邏輯 ---
 st.markdown('<h1 style="font-style:italic; font-weight:900; font-size:2.8rem; letter-spacing:-1px;">DRUG-SEARCH <span style="color:#3b82f6;">PRO</span></h1>', unsafe_allow_html=True)
 
-# 使用簡單的文字輸入，不使用組件以確保穩定
+# 使用簡單的文字輸入，確保穩定
 query = st.text_input("搜尋藥名", placeholder="請輸入藥品名稱 (例如: CEFIN)...", label_visibility="collapsed")
 
 if query:
     target_name = query.strip().upper()
     
-    # 建立一個佔位符來顯示結果，避免轉圈圈卡死
+    # 建立一個佔位符來顯示結果
     result_placeholder = st.empty()
     
     with st.spinner(f'正在為您檢索 {target_name} ...'):
@@ -70,7 +70,8 @@ if query:
         if db:
             try:
                 doc_ref = db.collection("med_knowledge").document(target_name)
-                doc = doc_ref.get(timeout=5) # 加入 5 秒超時保護
+                # 加入 5 秒超時保護，避免無限轉圈
+                doc = doc_ref.get(timeout=5) 
                 
                 if doc.exists:
                     final_content = doc.data().get("content")
@@ -83,10 +84,10 @@ if query:
 ● 數據狀態：已存入 Firestore 雲端資料庫。
 ● 同步時間：{now}
 ● 專業提醒：本數據由系統自動生成，臨床決策請諮詢藥師並核對仿單。"""
-                    # 異步寫入，不影響顯示速度
+                    # 異步寫入
                     doc_ref.set({"content": final_content})
             except Exception as e:
-                final_content = f"資料庫暫時無法連線，以下為 AI 模擬結果：\n\n【藥名：{target_name}】\n目前無法從雲端獲取數據，請檢查 Firebase 規則或 Secrets 設定。"
+                final_content = f"資料庫暫時無法連線，以下為預覽結果：\n\n【藥名：{target_name}】\n目前無法從雲端獲取數據，請檢查 Firebase 規則或 Secrets 設定。"
         else:
             final_content = f"⚠️ Firebase 未就緒。請檢查 Streamlit Secrets 是否包含 [firebase] 區塊。"
 
