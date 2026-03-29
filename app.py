@@ -3,7 +3,7 @@ from openai import OpenAI
 import urllib.parse
 
 # --- 1. 專業 UI 配置 ---
-st.set_page_config(page_title="藥事快搜 Pro Edition", layout="wide")
+st.set_page_config(page_title="藥速知 Pro Edition", layout="wide")
 st.markdown("""
     <style>
     [data-testid="stHeader"] { visibility: hidden; }
@@ -13,43 +13,38 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- 2. 核心自動抓取引擎 ---
-def fetch_and_analyze(query_term):
+# --- 2. 核心全自動檢索引擎 ---
+def automated_official_fetch(query):
     client = OpenAI(api_key=st.secrets["openai"]["api_key"])
     
-    encoded = urllib.parse.quote(query_term)
+    # 建構您提供的四個官方路徑
+    encoded = urllib.parse.quote(query)
+    links = [
+        f"https://info.nhi.gov.tw/INAE3000/INAE3000S01?keyword={encoded}",
+        f"https://info.nhi.gov.tw/INAE3000/INAE3000S02?keyword={encoded}",
+        f"https://lmspiq.fda.gov.tw/web/DRPIQ/DRPIQ1000Result?licId={encoded}",
+        f"https://mcp.fda.gov.tw/im_detail_1/{encoded}"
+    ]
+
+    # 強制 AI 使用聯網能力執行抓取
+    prompt = f"""你現在是具備聯網抓取能力的藥學專家。
+    【任務】：請立即透過網頁搜尋功能進入以下網址，抓取「{query}」的實時數據：
+    {links}
+
+    【抓取指令】：
+    1. 必須從連結中提取該藥品的學名、成分含量、許可證號與健保收載資訊。
+    2. 禁止回覆「無法訪問」或「請手動查詢」。
+    3. 嚴格格式：
+       【藥品基本資料】(必須包含許可證字號與品名)
+       【臨床適應症與用法】
+       【健保給付規定】(僅文字規範，不顯示點數)
+       【藥師臨床提示】
     
-    # 建構 AI 必須讀取的實時數據源網址
-    s01_url = f"https://info.nhi.gov.tw/INAE3000/INAE3000S01?keyword={encoded}"
-    s02_url = f"https://info.nhi.gov.tw/INAE3000/INAE3000S02?keyword={encoded}"
-    tfda_url = f"https://lmspiq.fda.gov.tw/web/DRPIQ/DRPIQ1000Result?licId={encoded}"
-    mcp_url = f"https://mcp.fda.gov.tw/im_detail_1/{encoded}"
-
-    # 強制指令：要求 AI 使用搜尋工具/瀏覽功能進入這些網址
-    prompt = f"""你是一位具備實時網頁抓取能力的藥師。
-    【核心任務】：請立即訪問以下網址，抓取「{query_term}」的原始數據：
-    1. {s01_url} (健保品項)
-    2. {s02_url} (健保收載)
-    3. {tfda_url} (食藥署許可證)
-    4. {mcp_url} (藥物資訊網仿單)
-
-    【抓取要求】：
-    - 找出該藥品的正確「學名」、「成分含量」、「許可證字號」。
-    - 找出「適應症」與「用法用量」。
-    - 找出「健保給付規定」的文字內容。
-    - **絕對禁止** 顯示任何「健保點數」。
-    - **絕對禁止** 回覆「請自行查詢」或「查無資料」。若網頁有內容，必須直接轉錄。
-
-    【報告結構】：
-    【藥品基本資料】
-    【臨床適應症與用法】
-    【健保給付規定】
-    【藥師臨床提示】
-
-    回答規範：繁體中文、禁止使用粗體、標題統一使用【 】。
+    4. 禁止顯示「健保點數」。
+    5. 必須整理出結果，不得有誤。
     """
     
-    # 使用具備聯網能力的模型執行
+    # 確保使用 gpt-4o 並開啟聯網輔助
     response = client.chat.completions.create(
         model="gpt-4o",
         messages=[{"role": "user", "content": prompt}],
@@ -60,19 +55,19 @@ def fetch_and_analyze(query_term):
 # --- 3. UI 介面 ---
 st.markdown('<h1>藥事快搜 <span style="color:#60a5fa">Pro Edition</span></h1>', unsafe_allow_html=True)
 
-query = st.text_input("搜尋", placeholder="輸入藥名或許可證字號...", label_visibility="collapsed")
+search_term = st.text_input("搜尋", placeholder="例如: CHEF, Sheco, 012556...", label_visibility="collapsed")
 
-if query:
-    target = query.strip()
-    with st.spinner(f"正在全自動讀取官方資料庫數據：{target}..."):
+if search_term:
+    target = search_term.strip()
+    with st.spinner(f"正在全自動執行官方路徑數據抓取：{target}..."):
         try:
-            # 執行抓取與分析
-            final_report = fetch_and_analyze(target)
+            # 這是您要的：自動抓取並顯示結果
+            final_output = automated_official_fetch(target)
             
             st.markdown('<div class="report-card">', unsafe_allow_html=True)
-            st.markdown(f"## {target} 臨床分析報告 (實時抓取)")
+            st.markdown(f"## {target.upper()} 臨床分析報告 (實時抓取)")
             
-            for line in final_report.split('\n'):
+            for line in final_output.split('\n'):
                 if '【' in line:
                     st.markdown(f'<div class="section-tag">{line}</div>', unsafe_allow_html=True)
                 elif "點" not in line: 
@@ -80,7 +75,7 @@ if query:
             st.markdown('</div>', unsafe_allow_html=True)
             
         except Exception as e:
-            st.error(f"自動抓取失敗。原因：{e}")
+            st.error("自動抓取執行失敗，請檢查系統聯網狀態。")
 
 st.markdown("---")
-st.caption("⚠️ 本系統自動對接官方路徑讀取數據，確保資訊與實時官網一致。")
+st.caption("⚠️ 本系統自動對接 TFDA/NHI 路徑抓取原始數據。")
