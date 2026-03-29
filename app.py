@@ -58,13 +58,16 @@ html_content = """
         const { useState, useEffect } = React;
 
         // 🔗 俊林，這裡就是我們核對過的正確金鑰
-        const firebaseConfig = {
-            apiKey: "AIzaSyDYzAXOd4xyJ5NOuwJl5nj7XgcVmba_54I",
-            authDomain: "drug-search-pro.firebaseapp.com",
-            projectId: "drug-search-pro",
-            storageBucket: "drug-search-pro.firebasestorage.app",
-            messagingSenderId: "601449029455",
-            appId: "1:601449029455:web:d05d7592b32780efe86f3a"
+       // 請將此段完整替換到您的程式碼中
+const firebaseConfig = {
+    apiKey: "AIzaSyDYzAXOd4xyJ5NOuwJl5nj7XgcVmba_54I",
+    authDomain: "drug-search-pro.firebaseapp.com",
+    projectId: "drug-search-pro",
+    storageBucket: "drug-search-pro.firebasestorage.app",
+    messagingSenderId: "601449029455",
+    appId: "1:601449029455:web:d05d7592b32780efe86f3a"
+};
+
         };
 
         // 初始化 Firebase
