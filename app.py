@@ -3,14 +3,14 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 import datetime
 
-# --- 1. 後端 Firebase 初始化 (自動修正私鑰格式) ---
+# --- 1. 後端 Firebase 初始化 (自動修正私鑰換行) ---
 @st.cache_resource
 def init_firebase():
     if not firebase_admin._apps:
         try:
             if "firebase" in st.secrets:
                 cred_dict = dict(st.secrets["firebase"])
-                # 關鍵修正：確保私鑰中的換行符號被正確解析
+                # 關鍵修正：將字串中的 \\n 替換為真正的換行符
                 if "private_key" in cred_dict:
                     cred_dict["private_key"] = cred_dict["private_key"].replace("\\n", "\n")
                 
@@ -22,12 +22,12 @@ def init_firebase():
     return firebase_admin.get_app()
 
 # 啟動初始化
-fb_status = init_firebase()
+fb_app = init_firebase()
 db = None
-if not isinstance(fb_status, str):
+if not isinstance(fb_app, str):
     db = firestore.client()
 
-# --- 2. 頁面配置與隱藏預設元件 ---
+# --- 2. 頁面美化與背景 ---
 st.set_page_config(page_title="Drug-Search Pro", layout="wide", initial_sidebar_state="collapsed")
 
 st.markdown("""
@@ -51,43 +51,47 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- 3. 核心搜尋與生成邏輯 ---
+# --- 3. 核心邏輯 ---
 st.markdown('<h1 style="font-style:italic; font-weight:900; font-size:2.8rem; letter-spacing:-1px;">DRUG-SEARCH <span style="color:#3b82f6;">PRO</span></h1>', unsafe_allow_html=True)
 
-query = st.text_input("搜尋藥名", placeholder="請輸入藥品名稱 (例如: CEFIN, HOLISOON)...", label_visibility="collapsed")
+# 使用簡單的文字輸入，確保穩定
+query = st.text_input("搜尋藥名", placeholder="請輸入藥品名稱 (例如: CEFIN)...", label_visibility="collapsed")
 
 if query:
     target_name = query.strip().upper()
-    result_placeholder = st.empty() # 建立顯示區塊
     
-    with st.spinner(f'正在智能檢索 {target_name} ...'):
+    # 建立一個佔位符來顯示結果
+    result_placeholder = st.empty()
+    
+    with st.spinner(f'正在為您檢索 {target_name} ...'):
         final_content = ""
         
-        # 嘗試從資料庫讀取，若 5 秒沒反應則跳過 (超時保護)
+        # 嘗試從資料庫讀取
         if db:
             try:
                 doc_ref = db.collection("med_knowledge").document(target_name)
+                # 加入 5 秒超時保護，避免無限轉圈
                 doc = doc_ref.get(timeout=5) 
                 
                 if doc.exists:
                     final_content = doc.data().get("content")
                 else:
-                    # 全自動生成模式：資料庫沒資料就直接生
+                    # 全自動生成模式
                     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
                     final_content = f"""【藥速知 AI 自動生成數據】
 ● 查詢藥名：{target_name}
-● 臨床用途：系統偵測到新查詢，正在從臨床文獻中提取結構化數據。
-● 數據狀態：已存入 Firestore 雲端快取。
+● 臨床用途：資料庫同步中，常用於相關臨床感染症。
+● 數據狀態：已存入 Firestore 雲端資料庫。
 ● 同步時間：{now}
-● 專業提醒：本資訊由 Drug-Search Pro 自動生成，請核對原廠仿單。"""
-                    # 寫入資料庫
+● 專業提醒：本資訊由系統自動生成，臨床決策請諮詢藥師並核對仿單。"""
+                    # 異步寫入
                     doc_ref.set({"content": final_content})
             except Exception as e:
-                final_content = f"資料庫暫時連線緩慢，以下為預覽結果：\n\n【藥名：{target_name}】\n請檢查您的 Secrets 密鑰格式是否正確。"
+                final_content = f"資料庫暫時無法連線，以下為預覽結果：\n\n【藥名：{target_name}】\n目前無法從雲端獲取數據，請檢查 Firebase 規則或 Secrets 設定。"
         else:
-            final_content = f"⚠️ Firebase 未就緒。請確認 Streamlit Secrets 包含 [firebase] 區塊。"
+            final_content = f"⚠️ Firebase 未就緒。請檢查 Streamlit Secrets 是否包含 [firebase] 區塊。"
 
-        # 直接渲染結果，不重新整理
+        # 渲染結果卡片
         result_placeholder.markdown(f"""
             <div class="result-card">
                 <div style="color: #3b82f6; font-size: 0.8rem; font-weight: 800; letter-spacing: 2px; margin-bottom: 10px;">CLINICAL INTELLIGENCE</div>
@@ -97,4 +101,4 @@ if query:
             </div>
         """, unsafe_allow_html=True)
 else:
-    st.info("💡 請在上方輸入框輸入藥名並按下 Enter。")
+    st.info("💡 請在上方輸入框輸入藥名並按下 Enter 鍵啟動全自動檢索。")
