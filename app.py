@@ -3,31 +3,37 @@ from openai import OpenAI
 import requests
 import json
 
-# --- 1. UI 配置 (保持置中佈局) ---
+# --- 1. UI 配置 (置中佈局 centered) ---
 st.set_page_config(page_title="藥速知 Pro Edition", layout="centered")
+
 st.markdown("""
     <style>
     [data-testid="stHeader"] { visibility: hidden; }
     .stApp { background-color: #07101e; color: #dde6f0; }
-    .report-card { background: #0e1a2e; border: 1px solid #3b82f6; border-radius: 12px; padding: 30px; margin-top: 20px; }
-    .section-tag { color: #60a5fa; font-weight: 900; border-left: 5px solid #3b82f6; padding-left: 12px; margin: 25px 0 10px; font-size: 18px; }
+    .report-card { 
+        background: #0e1a2e; 
+        border: 1px solid #3b82f6; 
+        border-radius: 12px; 
+        padding: 30px; 
+        margin-top: 20px;
+    }
+    .section-tag { 
+        color: #60a5fa; 
+        font-weight: 900; 
+        border-left: 5px solid #3b82f6; 
+        padding-left: 12px; 
+        margin: 25px 0 10px; 
+        font-size: 18px; 
+    }
     </style>
 """, unsafe_allow_html=True)
 
-# --- 2. 核心搜尋與路徑映射 ---
-def advanced_med_fetch(query):
-    # 建立硬性映射邏輯，防止複合查詢失靈
-    custom_mapping = {
-        "chef": "Sheco Granules 8mg (Bromhexine) AND Holisoon Spray (Benzydamine HCl)",
-        "olsaaca": "Olsaaca (Lansoprazole/Amoxicillin/Clarithromycin)"
-    }
-    
-    # 如果搜尋詞在映射表中，則擴展搜尋詞
-    search_query = custom_mapping.get(query.lower(), query)
-    
+# --- 2. 純粹雲端檢索函數 (不設人工映射) ---
+def pure_cloud_fetch(query):
+    # 直接模擬 Google 搜尋行為，不進行任何預設關鍵字替換
     url = "https://google.serper.dev/search"
     payload = json.dumps({
-        "q": f"藥品 健保價格 健保代碼 官網 仿單 {search_query}",
+        "q": f"藥品 健保價格 健保代碼 官網 仿單 {query}",
         "gl": "tw",
         "hl": "zh-tw"
     })
@@ -38,40 +44,41 @@ def advanced_med_fetch(query):
     try:
         response = requests.request("POST", url, headers=headers, data=payload)
         search_data = response.json()
+        # 僅提取搜尋結果的摘要作為 AI 分析的依據
         snippets = [f"{item['title']}: {item['snippet']}" for item in search_data.get('organic', [])[:5]]
         return "\n".join(snippets)
     except:
-        return "雲端搜尋異常。"
+        return ""
 
-# --- 3. 介面與分析邏輯 ---
+# --- 3. 系統主畫面 ---
 st.markdown('<h1>藥事快搜 <span style="color:#60a5fa">Pro Edition</span></h1>', unsafe_allow_html=True)
 
-# 支援 URL Fragment 直接搜尋 (針對 #chef 等連結)
-query_params = st.query_params
-initial_query = ""
-if "chef" in query_params: initial_query = "chef"
-
-search_input = st.text_input("搜尋", value=initial_query, placeholder="輸入藥名...", label_visibility="collapsed")
+# 單一搜尋入口
+search_input = st.text_input("搜尋", placeholder="輸入藥名 (如: chef, carbatin, holisoon...)", label_visibility="collapsed")
 
 if search_input:
     target = search_input.strip()
     
-    with st.spinner(f"正在深度分析官方數據：{target}..."):
-        live_context = advanced_med_fetch(target)
+    with st.spinner(f"正在全自動同步雲端數據：{target}..."):
+        # 執行純粹搜尋
+        live_context = pure_cloud_fetch(target)
+        
         client = OpenAI(api_key=st.secrets["openai"]["api_key"])
         
-        prompt = f"""你現在是專業藥務經理。請分析「{target}」。
+        # 修正 Prompt：要求 AI 必須基於「搜尋結果」提供事實，禁止瞎掰或給出「待確認」
+        prompt = f"""你現在是專業藥務經理。請分析藥品「{target}」。
         ---
-        搜尋實時資料：{live_context}
+        【搜尋參考資料】：
+        {live_context}
         ---
-        【核心要求】：
-        1. 嚴禁出現「待確認」或「未提供」。你必須根據搜尋資料或藥學常識精確填寫。
-        2. 若 target 為 CHEF，請分別列出 Sheco (Bromhexine) 與 Holisoon (Benzydamine HCl) 的完整資料。
-        3. 針對 Sheco，必須列出健保價格 (如 1.55 元/包) 與代碼，嚴禁標註為自費。
-        4. 針對 Holisoon，必須列出其噴液劑成分與正確用法。
+        【硬性要求】：
+        1. 僅根據參考資料與你的藥學知識庫進行分析。
+        2. 嚴禁出現「待確認」、「未提供」或「XXXXX」。
+        3. 必須包含：正確成分、規格、許可證字號。
+        4. 【健保給付規定】必須對接真實的健保代碼與價格。若搜尋結果顯示為自費或指示藥，請如實標註。
         5. 格式：【藥品基本資料】、【臨床適應症與用法】、【健保給付規定】、【藥師臨床提示】。
         
-        回答規範：繁體中文、禁止粗體、標題用【 】。
+        回答規範：繁體中文、禁止粗體、標題統一使用【 】。
         """
         
         try:
@@ -82,7 +89,7 @@ if search_input:
             )
             
             st.markdown('<div class="report-card">', unsafe_allow_html=True)
-            st.markdown(f"## {target.upper()} 官方實時分析報告")
+            st.markdown(f"## {target.upper()} 臨床分析報告")
             
             for line in response.choices[0].message.content.split('\n'):
                 if '【' in line:
@@ -91,5 +98,8 @@ if search_input:
                     st.write(line)
             st.markdown('</div>', unsafe_allow_html=True)
             
-        except Exception:
-            st.error("分析失敗。")
+        except Exception as e:
+            st.error(f"分析引擎連線失敗。")
+
+st.markdown("---")
+st.caption("⚠️ 本系統已移除特定藥品對接邏輯，完全依賴即時雲端檢索。")
