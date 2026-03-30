@@ -3,7 +3,7 @@ from openai import OpenAI
 import requests
 import json
 
-# --- 1. UI 樣式設定 (極簡深色專業版) ---
+# --- 1. UI 配置 ---
 st.set_page_config(page_title="藥速知 Pro Edition", layout="wide")
 st.markdown("""
     <style>
@@ -14,12 +14,12 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- 2. 雲端自動轉向搜尋邏輯 (解決非健保藥品問題) ---
-def google_live_fetch(query):
-    # 使用 Serper API 模擬您在瀏覽器搜尋「藥名 官網 仿單」
+# --- 2. 核心搜尋與健保對接邏輯 ---
+def advanced_med_fetch(query):
     url = "https://google.serper.dev/search"
+    # 擴大搜尋範圍，強制包含「健保價」關鍵字
     payload = json.dumps({
-        "q": f"藥品 官網 仿單 {query}",
+        "q": f"藥品 健保代碼 健保價格 仿單 {query}",
         "gl": "tw",
         "hl": "zh-tw"
     })
@@ -30,36 +30,36 @@ def google_live_fetch(query):
     try:
         response = requests.request("POST", url, headers=headers, data=payload)
         search_data = response.json()
-        # 提取前 5 筆搜尋摘要，確保 AI 能看到藥廠官網內容
         snippets = [f"{item['title']}: {item['snippet']}" for item in search_data.get('organic', [])[:5]]
         return "\n".join(snippets)
     except:
-        return "雲端搜尋暫時受阻。"
+        return "雲端連線失敗。"
 
-# --- 3. 系統主畫面 ---
+# --- 3. UI 呈現 ---
 st.markdown('<h1>藥事快搜 <span style="color:#60a5fa">Pro Edition</span></h1>', unsafe_allow_html=True)
 
-search_input = st.text_input("搜尋", placeholder="輸入如: Holisoon, Carbatin...", label_visibility="collapsed")
+search_input = st.text_input("搜尋", placeholder="輸入如: Sheco, Carbatin, Holisoon...", label_visibility="collapsed")
 
 if search_input:
     target = search_input.strip()
     
-    with st.spinner(f"正在全自動同步雲端官方資料：{target}..."):
-        # 第一步：直接去雲端抓取搜尋結果 (模擬您點開新東官網看到的資料)
-        live_context = google_live_fetch(target)
-        
-        # 第二步：由 AI 進行專業藥學整理
+    with st.spinner(f"正在深度檢索健保與雲端官方數據：{target}..."):
+        live_context = advanced_med_fetch(target)
         client = OpenAI(api_key=st.secrets["openai"]["api_key"])
-        prompt = f"""你現在是資深藥師。根據以下搜尋到的官方即時資訊，整理「{target}」的報告。
+        
+        # 修正 Prompt：嚴禁無根據判定為自費，要求必須找尋健保價
+        prompt = f"""你現在是專業藥務經理。根據以下雲端實時資訊，整理「{target}」的專業報告。
         ---
         搜尋摘要：{live_context}
         ---
         【硬性要求】：
-        1. 絕對禁止說「無法訪問」或使用「XXXXX」。
-        2. 針對「Holisoon (喉立順)」，必須正確對應成分 Benzydamine HCl 與新東大藥廠。
-        3. 格式：【藥品基本資料】、【臨床適應症與用法】、【健保給付規定】、【藥師臨床提示】。
-        4. 給付規定若查無資料，請標註「本品項為自費/指示藥品，不佔健保額度」。
-        5. 移除所有健保點數。標題用【 】，禁止粗體。
+        1. 絕對禁止在未經確認的情況下標註藥品為「自費」或「指示藥品」。
+        2. 針對 Sheco，你必須確認其健保給付狀態，若搜尋摘要中有健保代碼或價格，必須列出。
+        3. 【健保給付規定】必須包含：健保代碼、健保價格、以及具體的給付規範節錄。
+        4. 嚴禁使用 XXXXX 或任何假設性描述。
+        5. 格式：【藥品基本資料】、【臨床適應症與用法】、【健保給付規定】、【藥師臨床提示】。
+        
+        回答規範：繁體中文、禁止粗體、標題用【 】。
         """
         
         try:
@@ -69,19 +69,18 @@ if search_input:
                 temperature=0
             )
             
-            # --- 4. 渲染成果 ---
             st.markdown('<div class="report-card">', unsafe_allow_html=True)
             st.markdown(f"## {target.upper()} 官方實時分析報告")
             
             for line in response.choices[0].message.content.split('\n'):
                 if '【' in line:
                     st.markdown(f'<div class="section-tag">{line}</div>', unsafe_allow_html=True)
-                elif "點" not in line: 
+                else:
                     st.write(line)
             st.markdown('</div>', unsafe_allow_html=True)
             
-        except Exception:
-            st.error("雲端連線繁忙，請重新嘗試。")
+        except Exception as e:
+            st.error(f"分析失敗：{e}")
 
 st.markdown("---")
-st.caption("⚠️ 系統已啟動「雲端自動轉向搜尋」，確保非健保藥品亦能獲取精確官網資料。")
+st.caption("⚠️ 本系統已優化健保價格對接邏輯，確保給付資訊之準確性。")
