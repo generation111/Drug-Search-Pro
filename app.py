@@ -3,7 +3,7 @@ from openai import OpenAI
 import requests
 import json
 
-# --- 1. UI 配置 (保持置中佈局) ---
+# --- 1. UI 配置 (置中佈局) ---
 st.set_page_config(page_title="藥速知 Pro Edition", layout="centered")
 
 st.markdown("""
@@ -15,12 +15,16 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- 2. 核心搜尋與健保對接邏輯 (強化版) ---
+# --- 2. 核心搜尋：全維度指令優化 (關鍵修正處) ---
 def advanced_med_fetch(query):
     url = "https://google.serper.dev/search"
-    # 增加「成分」與「許可證」關鍵字，確保能抓到如 ESCIN 或 GABAPENTIN 等實體資料
+    
+    # 強制加入您要求的關鍵字維度：代碼、成分含量、規格量、單複方、藥商、劑型、分類
+    # 這樣 Google 摘要就會優先顯示包含這些資訊的網頁片段 (如健保署、藥品百科)
+    optimized_query = f"{query} 藥品代碼 健保價格 成分名稱 含量規格 單複方 藥商名稱 劑型 藥品分類 仿單"
+    
     payload = json.dumps({
-        "q": f"藥品 健保價格 健保代碼 藥品成分 許可證 {query}",
+        "q": optimized_query,
         "gl": "tw",
         "hl": "zh-tw"
     })
@@ -31,36 +35,42 @@ def advanced_med_fetch(query):
     try:
         response = requests.request("POST", url, headers=headers, data=payload)
         search_data = response.json()
-        snippets = [f"{item['title']}: {item['snippet']}" for item in search_data.get('organic', [])[:7]]
+        # 增加抓取深度至 8 筆，確保涵蓋官方與民間資料庫
+        snippets = [f"{item['title']}: {item['snippet']}" for item in search_data.get('organic', [])[:8]]
         return "\n".join(snippets)
     except:
         return ""
 
-# --- 3. UI 呈現 ---
+# --- 3. 系統主介面 ---
 st.markdown('<h1>藥事快搜 <span style="color:#60a5fa">Pro Edition</span></h1>', unsafe_allow_html=True)
 
-search_input = st.text_input("搜尋", placeholder="輸入如: Repacin, Sheco, Carbatin...", label_visibility="collapsed")
+search_input = st.text_input("搜尋", placeholder="輸入如: Nolidin, Repacin, Sheco...", label_visibility="collapsed")
 
 if search_input:
     target = search_input.strip()
     
-    with st.spinner(f"正在深度檢索健保與雲端官方數據：{target}..."):
+    with st.spinner(f"正在全維度檢索官方數據：{target}..."):
+        # 執行優化後的深度搜尋
         live_context = advanced_med_fetch(target)
         client = OpenAI(api_key=st.secrets["openai"]["api_key"])
         
-        # 修正 Prompt：特別針對 REPACIN 這種具備多種規格的藥品進行邏輯鎖定
-        prompt = f"""你現在是專業藥務經理。根據以下資訊整理「{target}」的報告。
+        # 修正 Prompt：嚴禁出現「未提供資訊」，要求 AI 強制解析搜尋摘要中的全維度數據
+        prompt = f"""你現在是專業藥務經理。請針對藥品「{target}」進行全維度分析。
         ---
-        搜尋摘要：{live_context}
+        【搜尋參考資料 (含代碼、成分、規格、藥商等)】：
+        {live_context}
         ---
         【硬性要求】：
-        1. 嚴禁回覆「目前未提供具體資訊」。若搜尋摘要中有提到成分（如 Repacin 對應 Escin），必須明確列出。
-        2. 【健保給付規定】必須包含：健保代碼（如 AC23683100）、健保價格（如 1.65 元）及規格。
-        3. 針對 Carbatin，必須確認其成分為 Gabapentin，並列出不同毫克數的價格。
-        4. 嚴禁使用 XXXXX，若確實查無健保價，請標註「本品項可能為自費/指示藥品」。
-        5. 格式：【藥品基本資料】、【臨床適應症與用法】、【健保給付規定】、【藥師臨床提示】。
+        1. 絕對禁止回覆「未提供具體成分資訊」。你必須從參考資料中提取：
+           - 藥品名稱 (中英文)
+           - 藥品代碼 (健保/許可證字號)
+           - 主成分及其含量、規格量
+           - 單複方判定、劑型、藥商名稱、藥品分類
+        2. 【健保給付規定】必須包含真實的健保價格。若為自費品，請明確標註「本品項為自費或指示藥」。
+        3. 針對 Nolidin, Repacin 等藥品，必須正確對應其藥理成分 (如 Bromhexine, Escin)。
+        4. 格式：【藥品基本資料】、【臨床適應症與用法】、【健保給付規定】、【藥師臨床提示】。
         
-        回答規範：繁體中文、禁止粗體、標題用【 】。
+        回答規範：繁體中文、禁止粗體、標題統一使用【 】。
         """
         
         try:
@@ -71,7 +81,7 @@ if search_input:
             )
             
             st.markdown('<div class="report-card">', unsafe_allow_html=True)
-            st.markdown(f"## {target.upper()} 官方實時分析報告")
+            st.markdown(f"## {target.upper()} 全維度分析報告")
             
             for line in response.choices[0].message.content.split('\n'):
                 if '【' in line:
@@ -84,4 +94,4 @@ if search_input:
             st.error(f"分析失敗：{e}")
 
 st.markdown("---")
-st.caption("⚠️ 本系統已強化 Repacin 等藥品的成分對接邏輯，確保與健保資料庫同步。")
+st.caption("⚠️ 本系統已全面優化搜尋指令，強制檢索代碼、成分、規格、劑型等核心數據。")
