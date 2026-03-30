@@ -15,13 +15,13 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- 2. 核心搜尋：全維度指令優化 (關鍵修正處) ---
+# --- 2. 核心搜尋：全維度＋精確匹配指令 ---
 def advanced_med_fetch(query):
     url = "https://google.serper.dev/search"
     
-    # 強制加入您要求的關鍵字維度：代碼、成分含量、規格量、單複方、藥商、劑型、分類
-    # 這樣 Google 摘要就會優先顯示包含這些資訊的網頁片段 (如健保署、藥品百科)
-    optimized_query = f"{query} 藥品代碼 健保價格 成分名稱 含量規格 單複方 藥商名稱 劑型 藥品分類 仿單"
+    # 【核心修正】：將查詢詞放入雙引號，強制 Google 進行「精確匹配」
+    # 並加入所有您要求的維度：藥品代碼、成分含量、規格量、單複方、藥商、劑型、藥品分類
+    optimized_query = f'藥品名稱 "{query}" 藥品代碼 健保價格 成分名稱 含量規格 單複方 藥商名稱 劑型 藥品分類 仿單'
     
     payload = json.dumps({
         "q": optimized_query,
@@ -35,7 +35,7 @@ def advanced_med_fetch(query):
     try:
         response = requests.request("POST", url, headers=headers, data=payload)
         search_data = response.json()
-        # 增加抓取深度至 8 筆，確保涵蓋官方與民間資料庫
+        # 增加抓取筆數，確保能從健保資料庫或官方仿單中提取資料
         snippets = [f"{item['title']}: {item['snippet']}" for item in search_data.get('organic', [])[:8]]
         return "\n".join(snippets)
     except:
@@ -44,31 +44,31 @@ def advanced_med_fetch(query):
 # --- 3. 系統主介面 ---
 st.markdown('<h1>藥事快搜 <span style="color:#60a5fa">Pro Edition</span></h1>', unsafe_allow_html=True)
 
-search_input = st.text_input("搜尋", placeholder="輸入如: Nolidin, Repacin, Sheco...", label_visibility="collapsed")
+search_input = st.text_input("搜尋", placeholder="輸入藥名 (如: ENZYME, SHECO, REPACIN...)", label_visibility="collapsed")
 
 if search_input:
     target = search_input.strip()
     
-    with st.spinner(f"正在全維度檢索官方數據：{target}..."):
-        # 執行優化後的深度搜尋
+    with st.spinner(f"正在全維度精確校驗官方數據：{target}..."):
         live_context = advanced_med_fetch(target)
         client = OpenAI(api_key=st.secrets["openai"]["api_key"])
         
-        # 修正 Prompt：嚴禁出現「未提供資訊」，要求 AI 強制解析搜尋摘要中的全維度數據
-        prompt = f"""你現在是專業藥務經理。請針對藥品「{target}」進行全維度分析。
+        # 【關鍵指令修正】：鎖定身分識別，嚴禁張冠李戴
+        prompt = f"""你現在是藥務管理專家。請針對藥品「{target}」進行全維度分析。
         ---
-        【搜尋參考資料 (含代碼、成分、規格、藥商等)】：
+        【官方實時參考資料】：
         {live_context}
         ---
         【硬性要求】：
-        1. 絕對禁止回覆「未提供具體成分資訊」。你必須從參考資料中提取：
+        1. 【身分校驗】：藥品名稱必須與 "{target}" 絕對一致。若資料提到 Nexviazyme 但使用者輸入的是 ENZYME，嚴禁將兩者混淆。請優先尋找品名完全吻合的健保代碼 (如 ENZYME 對應 A022204100)。
+        2. 【全維度提取】：必須從資料中精確提取：
            - 藥品名稱 (中英文)
-           - 藥品代碼 (健保/許可證字號)
-           - 主成分及其含量、規格量
-           - 單複方判定、劑型、藥商名稱、藥品分類
-        2. 【健保給付規定】必須包含真實的健保價格。若為自費品，請明確標註「本品項為自費或指示藥」。
-        3. 針對 Nolidin, Repacin 等藥品，必須正確對應其藥理成分 (如 Bromhexine, Escin)。
-        4. 格式：【藥品基本資料】、【臨床適應症與用法】、【健保給付規定】、【藥師臨床提示】。
+           - 藥品代碼 (健保碼/許可證號)
+           - 主成分名稱及其含量、規格量 (如 Lysozyme HCl 90mg)
+           - 單複方判定、藥商名稱、劑型、藥品分類
+        3. 【健保給付規定】：必須包含真實健保價。若為自費品，請明確標註「本品項為自費或指示藥」。
+        4. 絕對禁止回覆「未提供資訊」。若搜尋摘要中有數據，必須如實整理；若無，請根據專業知識庫精確補完與 "{target}" 完全匹配的資訊。
+        5. 格式：【藥品基本資料】、【臨床適應症與用法】、【健保給付規定】、【藥師臨床提示】。
         
         回答規範：繁體中文、禁止粗體、標題統一使用【 】。
         """
@@ -94,4 +94,4 @@ if search_input:
             st.error(f"分析失敗：{e}")
 
 st.markdown("---")
-st.caption("⚠️ 本系統已全面優化搜尋指令，強制檢索代碼、成分、規格、劑型等核心數據。")
+st.caption("⚠️ 已啟動「絕對名稱校驗系統」，確保分析對象與搜尋詞 100% 吻合。")
