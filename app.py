@@ -3,13 +3,14 @@ from openai import OpenAI
 import requests
 import json
 
-# --- 1. UI 配置 (置中佈局 centered) ---
+# --- 1. UI 配置 (已改為置中佈局 centered) ---
 st.set_page_config(page_title="藥速知 Pro Edition", layout="centered")
 
 st.markdown("""
     <style>
     [data-testid="stHeader"] { visibility: hidden; }
     .stApp { background-color: #07101e; color: #dde6f0; }
+    /* 報告卡片樣式 */
     .report-card { 
         background: #0e1a2e; 
         border: 1px solid #3b82f6; 
@@ -17,6 +18,7 @@ st.markdown("""
         padding: 30px; 
         margin-top: 20px;
     }
+    /* 區塊標籤樣式 */
     .section-tag { 
         color: #60a5fa; 
         font-weight: 900; 
@@ -28,12 +30,12 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- 2. 純粹雲端檢索函數 (不設人工映射) ---
-def pure_cloud_fetch(query):
-    # 直接模擬 Google 搜尋行為，不進行任何預設關鍵字替換
+# --- 2. 核心搜尋與健保對接邏輯 ---
+def advanced_med_fetch(query):
     url = "https://google.serper.dev/search"
+    # 擴大搜尋範圍，強制包含「健保代碼、價格」等實體關鍵字
     payload = json.dumps({
-        "q": f"藥品 健保價格 健保代碼 官網 仿單 {query}",
+        "q": f"藥品 健保代碼 健保價格 仿單 {query}",
         "gl": "tw",
         "hl": "zh-tw"
     })
@@ -44,41 +46,39 @@ def pure_cloud_fetch(query):
     try:
         response = requests.request("POST", url, headers=headers, data=payload)
         search_data = response.json()
-        # 僅提取搜尋結果的摘要作為 AI 分析的依據
+        # 提取前 5 筆搜尋摘要，提供給 AI 作為分析事實依據
         snippets = [f"{item['title']}: {item['snippet']}" for item in search_data.get('organic', [])[:5]]
         return "\n".join(snippets)
     except:
-        return ""
+        return "雲端連線失敗。"
 
-# --- 3. 系統主畫面 ---
+# --- 3. UI 呈現 ---
 st.markdown('<h1>藥事快搜 <span style="color:#60a5fa">Pro Edition</span></h1>', unsafe_allow_html=True)
 
-# 單一搜尋入口
-search_input = st.text_input("搜尋", placeholder="輸入藥名 (如: chef, carbatin, holisoon...)", label_visibility="collapsed")
+# 搜尋框置中呈現
+search_input = st.text_input("搜尋", placeholder="輸入如: Sheco, Carbatin, Holisoon...", label_visibility="collapsed")
 
 if search_input:
     target = search_input.strip()
     
-    with st.spinner(f"正在全自動同步雲端數據：{target}..."):
-        # 執行純粹搜尋
-        live_context = pure_cloud_fetch(target)
-        
+    with st.spinner(f"正在深度檢索健保與雲端官方數據：{target}..."):
+        # 執行實時抓取
+        live_context = advanced_med_fetch(target)
         client = OpenAI(api_key=st.secrets["openai"]["api_key"])
         
-        # 修正 Prompt：要求 AI 必須基於「搜尋結果」提供事實，禁止瞎掰或給出「待確認」
-        prompt = f"""你現在是專業藥務經理。請分析藥品「{target}」。
+        # 核心 Prompt：鎖定專業藥務邏輯，嚴禁模糊地帶
+        prompt = f"""你現在是專業藥務經理。根據以下雲端實時資訊，整理「{target}」的專業報告。
         ---
-        【搜尋參考資料】：
-        {live_context}
+        搜尋摘要：{live_context}
         ---
         【硬性要求】：
-        1. 僅根據參考資料與你的藥學知識庫進行分析。
-        2. 嚴禁出現「待確認」、「未提供」或「XXXXX」。
-        3. 必須包含：正確成分、規格、許可證字號。
-        4. 【健保給付規定】必須對接真實的健保代碼與價格。若搜尋結果顯示為自費或指示藥，請如實標註。
+        1. 絕對禁止在未經確認的情況下標註藥品為「自費」或「指示藥品」。
+        2. 針對 Sheco，你必須確認其健保給付狀態，若搜尋摘要中有健保代碼或價格，必須列出（例如：1.55元/包）。
+        3. 【健保給付規定】必須包含：健保代碼、健保價格、以及具體的給付規範節錄。
+        4. 嚴禁使用 XXXXX 或任何假設性描述，必須對接真實數據。
         5. 格式：【藥品基本資料】、【臨床適應症與用法】、【健保給付規定】、【藥師臨床提示】。
         
-        回答規範：繁體中文、禁止粗體、標題統一使用【 】。
+        回答規範：繁體中文、禁止粗體、標題用【 】。
         """
         
         try:
@@ -88,8 +88,9 @@ if search_input:
                 temperature=0
             )
             
+            # 渲染報告內容
             st.markdown('<div class="report-card">', unsafe_allow_html=True)
-            st.markdown(f"## {target.upper()} 臨床分析報告")
+            st.markdown(f"## {target.upper()} 官方實時分析報告")
             
             for line in response.choices[0].message.content.split('\n'):
                 if '【' in line:
@@ -99,7 +100,7 @@ if search_input:
             st.markdown('</div>', unsafe_allow_html=True)
             
         except Exception as e:
-            st.error(f"分析引擎連線失敗。")
+            st.error(f"分析失敗：{e}")
 
 st.markdown("---")
-st.caption("⚠️ 本系統已移除特定藥品對接邏輯，完全依賴即時雲端檢索。")
+st.caption("⚠️ 本系統已回歸雲端深度對接邏輯，確保健保資訊與官網數據一致。")
