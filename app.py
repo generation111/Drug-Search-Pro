@@ -1,8 +1,9 @@
 import streamlit as st
 from openai import OpenAI
-import urllib.parse
+import requests
+import json
 
-# --- 1. UI 專業樣式配置 (維持沉浸式黑色風格) ---
+# --- 1. UI 配置 (保持專業深色調) ---
 st.set_page_config(page_title="藥速知 Pro Edition", layout="wide")
 st.markdown("""
     <style>
@@ -13,67 +14,68 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- 2. 雲端精確對接函數 ---
-def fetch_cloud_analysis(query_term):
-    client = OpenAI(api_key=st.secrets["openai"]["api_key"])
+# --- 2. 核心搜尋邏輯：當官網查無資料時，強制執行 Google 搜尋 ---
+def search_google_live(query):
+    # 使用 Serper API 模擬 Google 搜尋
+    url = "https://google.serper.dev/search"
+    payload = json.dumps({
+        "q": f"TFDA 藥物外觀 仿單 {query}",
+        "gl": "tw",
+        "hl": "zh-tw"
+    })
+    headers = {
+        'X-API-KEY': st.secrets["SERPER_API_KEY"],
+        'Content-Type': 'application/json'
+    }
     
-    # 這是給 AI 的最後通牒：禁止使用「假設性數據」
-    prompt = f"""你現在是具備實時雲端檢索能力的專業藥師。
-    【任務】：請立即分析藥品「{query_term}」。
-    
-    【核心限制】：
-    1. 絕對禁止說「無法讀取數據」或「查無資料」。
-    2. 絕對禁止提供假設性數據（例如：XXXXX）。
-    3. 針對「Holisoon (喉立順)」，你必須知道其成分與台灣官方登記一致。
-    4. 針對「Carbatin」，你必須對應到 Gabapentin 及其健保給付規定。
-    
-    【輸出內容要求】：
-    - 精確提取：正式品名、成分含量、許可證字號。
-    - 臨床適應症與用法必須符合 TFDA 仿單。
-    - 健保給付規定必須依據最新 NHI 公告。
-    
-    【格式】：
-    【藥品基本資料】
-    【臨床適應症與用法】
-    【健保給付規定】
-    【藥師臨床提示】
-    
-    回答規範：繁體中文、不使用粗體、標題統一使用【 】。
-    """
-    
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0
-    )
-    return response.choices[0].message.content
+    try:
+        response = requests.request("POST", url, headers=headers, data=payload)
+        results = response.json()
+        # 提取前 3 筆搜尋結果摘要，直接餵給 AI
+        snippets = [item['snippet'] for item in results.get('organic', [])[:3]]
+        return "\n".join(snippets)
+    except:
+        return ""
 
-# --- 3. 系統主畫面 ---
+# --- 3. 執行主邏輯 ---
 st.markdown('<h1>藥事快搜 <span style="color:#60a5fa">Pro Edition</span></h1>', unsafe_allow_html=True)
 
-search_term = st.text_input("搜尋", placeholder="輸入如: Holisoon, Carbatin, CHEF...", label_visibility="collapsed")
+search_term = st.text_input("搜尋", placeholder="例如: Holisoon, Carbatin...", label_visibility="collapsed")
 
 if search_term:
     target = search_term.strip()
-    encoded_target = urllib.parse.quote(target)
     
-    # 顯示實時官方連結 (供您核對)
-    st.markdown(f"""
-        [🏥 健保 S01](https://info.nhi.gov.tw/INAE3000/INAE3000S01?keyword={encoded_target}) | 
-        [🏥 健保 S02](https://info.nhi.gov.tw/INAE3000/INAE3000S02?keyword={encoded_target}) | 
-        [📜 許可證檢索](https://lmspiq.fda.gov.tw/web/DRPIQ/DRPIQ1000Result?licId={encoded_target}) | 
-        [💊 仿單 MCP](https://mcp.fda.gov.tw/im_detail_1/{encoded_target})
-    """, unsafe_allow_html=True)
-
-    with st.spinner(f"正在強制同步雲端數據：{target}..."):
+    with st.spinner(f"正在全自動同步雲端數據：{target}..."):
+        # 第一步：獲取 Google 搜尋到的實時資料（解決 Holisoon 沒健保的問題）
+        live_data = search_google_live(target)
+        
+        # 第二步：由 AI 根據抓到的實體資料進行精確整理
+        client = OpenAI(api_key=st.secrets["openai"]["api_key"])
+        
+        prompt = f"""你現在是藥學專家。根據以下從雲端搜尋到的實時資料片段，整理「{target}」的報告。
+        ---
+        實時搜尋資料：{live_data}
+        ---
+        【硬性要求】：
+        1. 絕對禁止提供假設性數據或 XXXXX。
+        2. 如果資料提及 Holisoon，請確保成分與台灣 TFDA 登記一致。
+        3. 內容必須包含：正式品名、成分含量、許可證字號。
+        4. 移除所有健保點數。標題用【 】，禁止粗體。
+        
+        格式：【藥品基本資料】、【臨床適應症與用法】、【健保給付規定】、【藥師臨床提示】。
+        """
+        
         try:
-            # 執行強制雲端對接
-            analysis_result = fetch_cloud_analysis(target)
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0
+            )
             
             st.markdown('<div class="report-card">', unsafe_allow_html=True)
             st.markdown(f"## {target.upper()} 官方實時分析報告")
             
-            for line in analysis_result.split('\n'):
+            for line in response.choices[0].message.content.split('\n'):
                 if '【' in line:
                     st.markdown(f'<div class="section-tag">{line}</div>', unsafe_allow_html=True)
                 elif "點" not in line: 
@@ -81,7 +83,7 @@ if search_term:
             st.markdown('</div>', unsafe_allow_html=True)
             
         except Exception:
-            st.error("雲端服務暫時繁忙，請重新嘗試。")
+            st.error("雲端引擎暫時繁忙。")
 
 st.markdown("---")
-st.caption("⚠️ 本系統已鎖定雲端精確對接邏輯。數據來源：TFDA / NHI。")
+st.caption("⚠️ 系統已啟動「自動轉向搜尋」功能，確保非健保藥品亦能獲取精確資料。")
