@@ -15,13 +15,11 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- 2. 核心搜尋：全維度＋精確匹配指令 ---
+# --- 2. 全維度搜尋函數 ---
 def advanced_med_fetch(query):
     url = "https://google.serper.dev/search"
-    
-    # 【核心修正】：將查詢詞放入雙引號，強制 Google 進行「精確匹配」
-    # 並加入所有您要求的維度：藥品代碼、成分含量、規格量、單複方、藥商、劑型、藥品分類
-    optimized_query = f'藥品名稱 "{query}" 藥品代碼 健保價格 成分名稱 含量規格 單複方 藥商名稱 劑型 藥品分類 仿單'
+    # 加入精確匹配與全維度關鍵字
+    optimized_query = f'藥品名稱 "{query}" 藥品代碼 健保價格 成分名稱 含量規格 劑型 藥商名稱 藥品分類 健保給付規定 仿單'
     
     payload = json.dumps({
         "q": optimized_query,
@@ -35,7 +33,6 @@ def advanced_med_fetch(query):
     try:
         response = requests.request("POST", url, headers=headers, data=payload)
         search_data = response.json()
-        # 增加抓取筆數，確保能從健保資料庫或官方仿單中提取資料
         snippets = [f"{item['title']}: {item['snippet']}" for item in search_data.get('organic', [])[:8]]
         return "\n".join(snippets)
     except:
@@ -44,31 +41,29 @@ def advanced_med_fetch(query):
 # --- 3. 系統主介面 ---
 st.markdown('<h1>藥事快搜 <span style="color:#60a5fa">Pro Edition</span></h1>', unsafe_allow_html=True)
 
-search_input = st.text_input("搜尋", placeholder="輸入藥名 (如: ENZYME, SHECO, REPACIN...)", label_visibility="collapsed")
+search_input = st.text_input("搜尋", placeholder="輸入藥名 (如: ENZYME, REPACIN, SHECO...)", label_visibility="collapsed")
 
 if search_input:
     target = search_input.strip()
     
-    with st.spinner(f"正在全維度精確校驗官方數據：{target}..."):
+    with st.spinner(f"正在執行全維度數據分離檢索：{target}..."):
         live_context = advanced_med_fetch(target)
         client = OpenAI(api_key=st.secrets["openai"]["api_key"])
         
-        # 【關鍵指令修正】：鎖定身分識別，嚴禁張冠李戴
-        prompt = f"""你現在是藥務管理專家。請針對藥品「{target}」進行全維度分析。
+        # 【核心邏輯修正】：分離「價格」與「規定」
+        prompt = f"""你現在是專業藥務經理。請針對藥品「{target}」進行全維度分析。
         ---
-        【官方實時參考資料】：
+        【官方參考資料】：
         {live_context}
         ---
-        【硬性要求】：
-        1. 【身分校驗】：藥品名稱必須與 "{target}" 絕對一致。若資料提到 Nexviazyme 但使用者輸入的是 ENZYME，嚴禁將兩者混淆。請優先尋找品名完全吻合的健保代碼 (如 ENZYME 對應 A022204100)。
-        2. 【全維度提取】：必須從資料中精確提取：
-           - 藥品名稱 (中英文)
-           - 藥品代碼 (健保碼/許可證號)
-           - 主成分名稱及其含量、規格量 (如 Lysozyme HCl 90mg)
-           - 單複方判定、藥商名稱、劑型、藥品分類
-        3. 【健保給付規定】：必須包含真實健保價。若為自費品，請明確標註「本品項為自費或指示藥」。
-        4. 絕對禁止回覆「未提供資訊」。若搜尋摘要中有數據，必須如實整理；若無，請根據專業知識庫精確補完與 "{target}" 完全匹配的資訊。
-        5. 格式：【藥品基本資料】、【臨床適應症與用法】、【健保給付規定】、【藥師臨床提示】。
+        【硬性要求 - 邏輯分離原則】：
+        1. 【藥品基本資料】：品名必須 100% 吻合 "{target}"。包含代碼、成分含量(如 Lysozyme 90mg)、規格量、藥商、劑型、藥品分類。
+        2. 【價格與給付】：
+           - 必須列出「健保價格」與「健保代碼」。
+           - 若有價格但無「特定給付規定限制」，請標註「本品項依健保收載規定給付」。
+           - 嚴禁因為找不到「給付規定」就判定為自費。只有在完全查無健保代碼時，才可標註為自費或指示藥。
+        3. 【給付規定內容】：僅列出針對該成分或品項的特定限制條文（例如限制科別、限制診斷）。若無特定限制，則填寫「無特殊限制，按健保一般規範辦理」。
+        4. 格式：【藥品基本資料】、【臨床適應症與用法】、【健保價格與代碼】、【健保給付規定限制】、【藥師臨床提示】。
         
         回答規範：繁體中文、禁止粗體、標題統一使用【 】。
         """
@@ -90,8 +85,8 @@ if search_input:
                     st.write(line)
             st.markdown('</div>', unsafe_allow_html=True)
             
-        except Exception as e:
-            st.error(f"分析失敗：{e}")
+        except Exception:
+            st.error("分析引擎調用失敗。")
 
 st.markdown("---")
-st.caption("⚠️ 已啟動「絕對名稱校驗系統」，確保分析對象與搜尋詞 100% 吻合。")
+st.caption("⚠️ 已修正給付邏輯：分離「健保價格」與「給付規定」，確保分析不張冠李戴。")
